@@ -1,5 +1,5 @@
 /*
- * JsSIP v3.9.0-alpha.4
+ * JsSIP v3.9.0-beta.6
  * the Javascript SIP library with patches for Mitel use
  * Copyright: 2012-2022 
  * Homepage: https://jssip.net
@@ -56,6 +56,8 @@ exports.settings = {
   sockets: null,
   connection_recovery_max_interval: JsSIP_C.CONNECTION_RECOVERY_MAX_INTERVAL,
   connection_recovery_min_interval: JsSIP_C.CONNECTION_RECOVERY_MIN_INTERVAL,
+  // Global extra headers, to be added to every request and response
+  extra_headers: null,
 
   /*
    * Host address.
@@ -251,6 +253,32 @@ var checks = {
       if (typeof _use_preloaded_route === 'boolean') {
         return _use_preloaded_route;
       }
+    },
+    extra_headers: function extra_headers(_extra_headers) {
+      var _extraHeaders = [];
+
+      if (Array.isArray(_extra_headers) && _extra_headers.length) {
+        var _iterator2 = _createForOfIteratorHelper(_extra_headers),
+            _step2;
+
+        try {
+          for (_iterator2.s(); !(_step2 = _iterator2.n()).done;) {
+            var header = _step2.value;
+
+            if (typeof header === 'string') {
+              _extraHeaders.push(header);
+            }
+          }
+        } catch (err) {
+          _iterator2.e(err);
+        } finally {
+          _iterator2.f();
+        }
+      } else {
+        return;
+      }
+
+      return _extraHeaders;
     }
   }
 };
@@ -22220,8 +22248,13 @@ var OutgoingRequest = /*#__PURE__*/function () {
     this.method = method;
     this.ruri = ruri;
     this.body = body;
-    this.extraHeaders = Utils.cloneArray(extraHeaders); // Fill the Common SIP Request Headers.
+    this.extraHeaders = Utils.cloneArray(extraHeaders);
+
+    if (this.ua.configuration.extra_headers) {
+      this.extraHeaders = this.extraHeaders.concat(this.ua.configuration.extra_headers);
+    } // Fill the Common SIP Request Headers.
     // Route.
+
 
     if (params.route_set) {
       this.setHeader('route', params.route_set);
@@ -22813,6 +22846,11 @@ var IncomingRequest = /*#__PURE__*/function (_IncomingMessage) {
 
       reason = reason || JsSIP_C.REASON_PHRASE[code] || '';
       extraHeaders = Utils.cloneArray(extraHeaders);
+
+      if (this.ua.configuration.extra_headers) {
+        extraHeaders = extraHeaders.concat(this.ua.configuration.extra_headers);
+      }
+
       var response = "SIP/2.0 ".concat(code, " ").concat(reason, "\r\n");
 
       if (this.method === JsSIP_C.INVITE && code > 100 && code <= 200) {
@@ -22972,6 +23010,23 @@ var IncomingRequest = /*#__PURE__*/function (_IncomingMessage) {
       response += "From: ".concat(this.getHeader('From'), "\r\n");
       response += "Call-ID: ".concat(this.call_id, "\r\n");
       response += "CSeq: ".concat(this.cseq, " ").concat(this.method, "\r\n");
+
+      if (this.ua.configuration.extra_headers) {
+        var _iterator12 = _createForOfIteratorHelper(this.ua.configuration.extra_headers),
+            _step12;
+
+        try {
+          for (_iterator12.s(); !(_step12 = _iterator12.n()).done;) {
+            var header = _step12.value;
+            response += "".concat(header.trim(), "\r\n");
+          }
+        } catch (err) {
+          _iterator12.e(err);
+        } finally {
+          _iterator12.f();
+        }
+      }
+
       response += "Content-Length: ".concat(0, "\r\n\r\n");
       this.transport.send(response);
     }
@@ -29358,7 +29413,7 @@ module.exports={
   "name": "@mitel-internal/jssip-mitel",
   "title": "JsSIP",
   "description": "the Javascript SIP library with patches for Mitel use",
-  "version": "3.9.0-alpha.4",
+  "version": "3.9.0-beta.6",
   "homepage": "https://jssip.net",
   "contributors": [
     "José Luis Millán <jmillan@aliax.net> (https://github.com/jmillan)",
