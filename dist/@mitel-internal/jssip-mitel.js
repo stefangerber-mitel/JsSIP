@@ -1,5 +1,5 @@
 /*
- * JsSIP v3.9.0-beta.6
+ * JsSIP v3.9.1-beta.1
  * the Javascript SIP library with patches for Mitel use
  * Copyright: 2012-2022 
  * Homepage: https://jssip.net
@@ -29413,7 +29413,7 @@ module.exports={
   "name": "@mitel-internal/jssip-mitel",
   "title": "JsSIP",
   "description": "the Javascript SIP library with patches for Mitel use",
-  "version": "3.9.0-beta.6",
+  "version": "3.9.1-beta.1",
   "homepage": "https://jssip.net",
   "contributors": [
     "José Luis Millán <jmillan@aliax.net> (https://github.com/jmillan)",
