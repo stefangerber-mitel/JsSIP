@@ -1,5 +1,5 @@
 /*
- * JsSIP v3.9.1-beta.1
+ * JsSIP v3.9.1-beta.2
  * the Javascript SIP library with patches for Mitel use
  * Copyright: 2012-2022 
  * Homepage: https://jssip.net
@@ -19476,6 +19476,18 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
         }
       }) // Set local description.
       .then(function (desc) {
+        var e = {
+          type: type,
+          sdp: desc.sdp
+        };
+        logger.debug('emit "localDescription"'); // Give the event receiver the opportunity to mangle the SDP before it is handed
+        // over to WebRTC via RTCPeerConnection.setLocalDescription(). This is useful, e.g.
+        // for disabling streams by setting the port to 0 in the m-line (RFC 3264, section 6).
+        // WebRTC needs to be made aware of such a modification.
+
+        _this13.emit('localDescription', e);
+
+        desc.sdp = e.sdp;
         return connection.setLocalDescription(desc)["catch"](function (error) {
           _this13._rtcReady = true;
           logger.warn('emit "peerconnection:setlocaldescriptionfailed" [error:%o]', error);
@@ -29413,7 +29425,7 @@ module.exports={
   "name": "@mitel-internal/jssip-mitel",
   "title": "JsSIP",
   "description": "the Javascript SIP library with patches for Mitel use",
-  "version": "3.9.1-beta.1",
+  "version": "3.9.1-beta.2",
   "homepage": "https://jssip.net",
   "contributors": [
     "José Luis Millán <jmillan@aliax.net> (https://github.com/jmillan)",

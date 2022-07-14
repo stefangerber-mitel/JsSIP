@@ -2,7 +2,7 @@
   "name": "@mitel-internal/jssip-mitel",
   "title": "JsSIP",
   "description": "the Javascript SIP library with patches for Mitel use",
-  "version": "3.9.1-beta.1",
+  "version": "3.9.1-beta.2",
   "homepage": "https://jssip.net",
   "contributors": [
     "José Luis Millán <jmillan@aliax.net> (https://github.com/jmillan)",
