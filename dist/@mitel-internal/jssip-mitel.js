@@ -1,5 +1,5 @@
 /*
- * JsSIP v3.10.0-beta.2
+ * JsSIP v3.10.0-beta.3
  * the Javascript SIP library with patches for Mitel use
  * Copyright: 2012-2023 
  * Homepage: https://jssip.net
@@ -18931,9 +18931,6 @@ var OutgoingRequest = /*#__PURE__*/function () {
     if (this.ua.configuration.extra_headers) {
       this.extraHeaders = this.extraHeaders.concat(this.ua.configuration.extra_headers);
     }
-    if (this.ua.configuration.extra_headers) {
-      this.extraHeaders = this.extraHeaders.concat(this.ua.configuration.extra_headers);
-    }
 
     // Fill the Common SIP Request Headers.
 
@@ -19471,9 +19468,6 @@ var IncomingRequest = /*#__PURE__*/function (_IncomingMessage) {
       }
       reason = reason || JsSIP_C.REASON_PHRASE[code] || '';
       extraHeaders = Utils.cloneArray(extraHeaders);
-      if (this.ua.configuration.extra_headers) {
-        extraHeaders = extraHeaders.concat(this.ua.configuration.extra_headers);
-      }
       if (this.ua.configuration.extra_headers) {
         extraHeaders = extraHeaders.concat(this.ua.configuration.extra_headers);
       }
@@ -25540,7 +25534,7 @@ module.exports={
   "name": "@mitel-internal/jssip-mitel",
   "title": "JsSIP",
   "description": "the Javascript SIP library with patches for Mitel use",
-  "version": "3.10.0-beta.2",
+  "version": "3.10.0-beta.3",
   "homepage": "https://jssip.net",
   "contributors": [
     "José Luis Millán <jmillan@aliax.net> (https://github.com/jmillan)",
