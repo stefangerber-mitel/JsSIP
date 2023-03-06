@@ -1,4 +1,4 @@
-import {EventEmitter, Listener} from 'events'
+import {EventEmitter} from 'events'
 
 import {IncomingRequest, IncomingResponse, OutgoingRequest} from './SIPMessage'
 import {NameAddrHeader} from './NameAddrHeader'
@@ -189,6 +189,7 @@ export interface LocalDescriptionEvent {
 }
 
 // listener
+export type AnyListener = (...args: any[]) => void;
 export type PeerConnectionListener = (event: PeerConnectionEvent) => void;
 export type ConnectingListener = (event: ConnectingEvent) => void;
 export type SendingListener = (event: SendingEvent) => void;
@@ -237,11 +238,11 @@ export interface RTCSessionEventMap {
   'replaces': ReferListener;
   'sdp': SDPListener;
   'icecandidate': IceCandidateListener;
-  'getusermediafailed': Listener;
-  'peerconnection:createofferfailed': Listener;
-  'peerconnection:createanswerfailed': Listener;
-  'peerconnection:setlocaldescriptionfailed': Listener;
-  'peerconnection:setremotedescriptionfailed': Listener;
+  'getusermediafailed': AnyListener;
+  'peerconnection:createofferfailed': AnyListener;
+  'peerconnection:createanswerfailed': AnyListener;
+  'peerconnection:setlocaldescriptionfailed': AnyListener;
+  'peerconnection:setremotedescriptionfailed': AnyListener;
   'localDescription': LocalDescriptionListener;
 }
 

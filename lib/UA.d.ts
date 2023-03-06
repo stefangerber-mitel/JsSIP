@@ -1,7 +1,7 @@
-import {EventEmitter, Listener} from 'events'
+import {EventEmitter} from 'events'
 
 import {Socket, WeightedSocket} from './Socket'
-import {AnswerOptions, Originator, RTCSession, RTCSessionEventMap, TerminateOptions} from './RTCSession'
+import {AnswerOptions, AnyListener, Originator, RTCSession, RTCSessionEventMap, TerminateOptions} from './RTCSession'
 import {IncomingRequest, IncomingResponse, OutgoingRequest} from './SIPMessage'
 import {Message, SendMessageOptions} from './Message'
 import {Registrator} from './Registrator'
@@ -134,7 +134,7 @@ export interface UAEventMap {
   registered: RegisteredListener;
   unregistered: UnRegisteredListener;
   registrationFailed: RegistrationFailedListener;
-  registrationExpiring: Listener;
+  registrationExpiring: AnyListener;
   newRTCSession: RTCSessionListener;
   newMessage: MessageListener;
   sipEvent: SipEventListener;
