@@ -1,5 +1,5 @@
 /*
- * JsSIP v3.10.0-beta.4
+ * JsSIP v3.10.0-beta.5
  * the Javascript SIP library with patches for Mitel use
  * Copyright: 2012-2023 
  * Homepage: https://jssip.net
@@ -465,7 +465,7 @@ module.exports = {
   CONNECTION_RECOVERY_MAX_INTERVAL: 30,
   CONNECTION_RECOVERY_MIN_INTERVAL: 2
 };
-},{"../package.json":42}],3:[function(require,module,exports){
+},{"../package.json":50}],3:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -871,6 +871,8 @@ module.exports = /*#__PURE__*/function () {
     this._uri = null;
     this._ha1 = null;
     this._response = null;
+    this._userhash = null;
+    this._charset = null;
   }
   _createClass(DigestAuthentication, [{
     key: "get",
@@ -903,9 +905,11 @@ module.exports = /*#__PURE__*/function () {
       this._nonce = challenge.nonce;
       this._opaque = challenge.opaque;
       this._stale = challenge.stale;
+      this._userhash = challenge.userhash;
+      this._charset = challenge.charset;
       if (this._algorithm) {
-        if (this._algorithm !== 'MD5') {
-          logger.warn('authenticate() | challenge with Digest algorithm different than "MD5", authentication aborted');
+        if (!/^MD5$|^MD5-SESS$|^SHA-256$|^SHA-256-SESS$|^SHA-512-256$|^SHA-512-256-SESS$/.test(this._algorithm)) {
+          logger.warn("authenticate() | challenge with unsupported Digest algorithm ".concat(this._algorithm, ", authentication aborted"));
           return false;
         }
       } else {
@@ -917,6 +921,13 @@ module.exports = /*#__PURE__*/function () {
       }
       if (!this._realm) {
         logger.warn('authenticate() | challenge without Digest realm, authentication aborted');
+        return false;
+      }
+
+      // If the challenge contains the optional charset parameter then it must
+      // be UTF-8 according to RFC 7616, section 3.3
+      if (this._charset && this._charset !== 'UTF-8') {
+        logger.warn("authenticate() | challenge with unsupported Digest charset ".concat(this._charset, ", authentication aborted"));
         return false;
       }
 
@@ -969,8 +980,14 @@ module.exports = /*#__PURE__*/function () {
 
       // If we have plain SIP password then regenerate ha1.
       if (this._credentials.password) {
-        // HA1 = MD5(A1) = MD5(username:realm:password).
-        this._ha1 = Utils.calculateMD5("".concat(this._credentials.username, ":").concat(this._realm, ":").concat(this._credentials.password));
+        if (this._algorithm.endsWith('-SESS')) {
+          // HA1 = HASH(A1) = HASH(HASH(username:realm:password):nonce:cnonce).
+          var hurp = this._calcHash("".concat(this._credentials.username, ":").concat(this._realm, ":").concat(this._credentials.password));
+          this._ha1 = this._calcHash("".concat(hurp, ":").concat(this._nonce, ":").concat(this._cnonce));
+        } else {
+          // HA1 = HASH(A1) = HASH(username:realm:password).
+          this._ha1 = this._calcHash("".concat(this._credentials.username, ":").concat(this._realm, ":").concat(this._credentials.password));
+        }
       }
       // Otherwise reuse the stored ha1.
       else {
@@ -979,29 +996,29 @@ module.exports = /*#__PURE__*/function () {
       var a2;
       var ha2;
       if (this._qop === 'auth') {
-        // HA2 = MD5(A2) = MD5(method:digestURI).
+        // HA2 = HASH(A2) = HASH(method:digestURI).
         a2 = "".concat(this._method, ":").concat(this._uri);
-        ha2 = Utils.calculateMD5(a2);
+        ha2 = this._calcHash(a2);
         logger.debug('authenticate() | using qop=auth [a2:"%s"]', a2);
 
-        // Response = MD5(HA1:nonce:nonceCount:credentialsNonce:qop:HA2).
-        this._response = Utils.calculateMD5("".concat(this._ha1, ":").concat(this._nonce, ":").concat(this._ncHex, ":").concat(this._cnonce, ":auth:").concat(ha2));
+        // Response = HASH(HA1:nonce:nonceCount:credentialsNonce:qop:HA2).
+        this._response = this._calcHash("".concat(this._ha1, ":").concat(this._nonce, ":").concat(this._ncHex, ":").concat(this._cnonce, ":auth:").concat(ha2));
       } else if (this._qop === 'auth-int') {
-        // HA2 = MD5(A2) = MD5(method:digestURI:MD5(entityBody)).
-        a2 = "".concat(this._method, ":").concat(this._uri, ":").concat(Utils.calculateMD5(body ? body : ''));
-        ha2 = Utils.calculateMD5(a2);
+        // HA2 = HASH(A2) = HASH(method:digestURI:HASH(entityBody)).
+        a2 = "".concat(this._method, ":").concat(this._uri, ":").concat(this._calcHash(body ? body : ''));
+        ha2 = this._calcHash(a2);
         logger.debug('authenticate() | using qop=auth-int [a2:"%s"]', a2);
 
-        // Response = MD5(HA1:nonce:nonceCount:credentialsNonce:qop:HA2).
-        this._response = Utils.calculateMD5("".concat(this._ha1, ":").concat(this._nonce, ":").concat(this._ncHex, ":").concat(this._cnonce, ":auth-int:").concat(ha2));
+        // Response = HASH(HA1:nonce:nonceCount:credentialsNonce:qop:HA2).
+        this._response = this._calcHash("".concat(this._ha1, ":").concat(this._nonce, ":").concat(this._ncHex, ":").concat(this._cnonce, ":auth-int:").concat(ha2));
       } else if (this._qop === null) {
-        // HA2 = MD5(A2) = MD5(method:digestURI).
+        // HA2 = HASH(A2) = HASH(method:digestURI).
         a2 = "".concat(this._method, ":").concat(this._uri);
-        ha2 = Utils.calculateMD5(a2);
+        ha2 = this._calcHash(a2);
         logger.debug('authenticate() | using qop=null [a2:"%s"]', a2);
 
-        // Response = MD5(HA1:nonce:HA2).
-        this._response = Utils.calculateMD5("".concat(this._ha1, ":").concat(this._nonce, ":").concat(ha2));
+        // Response = HASH(HA1:nonce:HA2).
+        this._response = this._calcHash("".concat(this._ha1, ":").concat(this._nonce, ":").concat(ha2));
       }
       logger.debug('authenticate() | response generated');
       return true;
@@ -1018,7 +1035,13 @@ module.exports = /*#__PURE__*/function () {
         throw new Error('response field does not exist, cannot generate Authorization header');
       }
       auth_params.push("algorithm=".concat(this._algorithm));
-      auth_params.push("username=\"".concat(this._credentials.username, "\""));
+      if (this._userhash !== undefined) {
+        var username = this._userhash ? this._calcHash("".concat(this._credentials.username, ":").concat(this._realm)) : this._credentials.username;
+        auth_params.push("username=\"".concat(username, "\""));
+        auth_params.push("userhash=".concat(this._userhash));
+      } else {
+        auth_params.push("username=\"".concat(this._credentials.username, "\""));
+      }
       auth_params.push("realm=\"".concat(this._realm, "\""));
       auth_params.push("nonce=\"".concat(this._nonce, "\""));
       auth_params.push("uri=\"".concat(this._uri, "\""));
@@ -1032,6 +1055,29 @@ module.exports = /*#__PURE__*/function () {
         auth_params.push("nc=".concat(this._ncHex));
       }
       return "Digest ".concat(auth_params.join(', '));
+    }
+  }, {
+    key: "_calcHash",
+    value: function _calcHash(str) {
+      var retVal;
+      switch (this._algorithm) {
+        case 'MD5':
+        case 'MD5-SESS':
+          retVal = Utils.calculateMD5(str);
+          break;
+        case 'SHA-256':
+        case 'SHA-256-SESS':
+          retVal = Utils.calculateSHA256(str);
+          break;
+        case 'SHA-512-256':
+        case 'SHA-512-256-SESS':
+          retVal = Utils.calculateSHA512_256(str);
+          break;
+        default:
+          retVal = Utils.calculateMD5(str);
+          break;
+      }
+      return retVal;
     }
   }]);
   return DigestAuthentication;
@@ -1331,6 +1377,8 @@ module.exports = function () {
         "algorithm": parse_algorithm,
         "qop_options": parse_qop_options,
         "qop_value": parse_qop_value,
+        "userhash": parse_userhash,
+        "charset": parse_charset,
         "Proxy_Require": parse_Proxy_Require,
         "Record_Route": parse_Record_Route,
         "rec_route": parse_rec_route,
@@ -10619,7 +10667,13 @@ module.exports = function () {
                   if (result0 === null) {
                     result0 = parse_qop_options();
                     if (result0 === null) {
-                      result0 = parse_auth_param();
+                      result0 = parse_userhash();
+                      if (result0 === null) {
+                        result0 = parse_charset();
+                        if (result0 === null) {
+                          result0 = parse_auth_param();
+                        }
+                      }
                     }
                   }
                 }
@@ -10982,7 +11036,51 @@ module.exports = function () {
                 }
               }
               if (result2 === null) {
-                result2 = parse_token();
+                if (input.substr(pos, 7).toLowerCase() === "sha-256") {
+                  result2 = input.substr(pos, 7);
+                  pos += 7;
+                } else {
+                  result2 = null;
+                  if (reportFailures === 0) {
+                    matchFailed("\"SHA-256\"");
+                  }
+                }
+                if (result2 === null) {
+                  if (input.substr(pos, 12).toLowerCase() === "sha-256-sess") {
+                    result2 = input.substr(pos, 12);
+                    pos += 12;
+                  } else {
+                    result2 = null;
+                    if (reportFailures === 0) {
+                      matchFailed("\"SHA-256-sess\"");
+                    }
+                  }
+                  if (result2 === null) {
+                    if (input.substr(pos, 11).toLowerCase() === "sha-512-256") {
+                      result2 = input.substr(pos, 11);
+                      pos += 11;
+                    } else {
+                      result2 = null;
+                      if (reportFailures === 0) {
+                        matchFailed("\"SHA-512-256\"");
+                      }
+                    }
+                    if (result2 === null) {
+                      if (input.substr(pos, 16).toLowerCase() === "sha-512-256-sess") {
+                        result2 = input.substr(pos, 16);
+                        pos += 16;
+                      } else {
+                        result2 = null;
+                        if (reportFailures === 0) {
+                          matchFailed("\"SHA-512-256-sess\"");
+                        }
+                      }
+                      if (result2 === null) {
+                        result2 = parse_token();
+                      }
+                    }
+                  }
+                }
               }
             }
             if (result2 !== null) {
@@ -11146,6 +11244,129 @@ module.exports = function () {
             data.qop || (data.qop = []);
             data.qop.push(qop_value.toLowerCase());
           }(pos0, result0);
+        }
+        if (result0 === null) {
+          pos = pos0;
+        }
+        return result0;
+      }
+      function parse_userhash() {
+        var result0, result1, result2;
+        var pos0, pos1;
+        pos0 = pos;
+        if (input.substr(pos, 8).toLowerCase() === "userhash") {
+          result0 = input.substr(pos, 8);
+          pos += 8;
+        } else {
+          result0 = null;
+          if (reportFailures === 0) {
+            matchFailed("\"userhash\"");
+          }
+        }
+        if (result0 !== null) {
+          result1 = parse_EQUAL();
+          if (result1 !== null) {
+            pos1 = pos;
+            if (input.substr(pos, 4).toLowerCase() === "true") {
+              result2 = input.substr(pos, 4);
+              pos += 4;
+            } else {
+              result2 = null;
+              if (reportFailures === 0) {
+                matchFailed("\"true\"");
+              }
+            }
+            if (result2 !== null) {
+              result2 = function (offset) {
+                data.userhash = true;
+              }(pos1);
+            }
+            if (result2 === null) {
+              pos = pos1;
+            }
+            if (result2 === null) {
+              pos1 = pos;
+              if (input.substr(pos, 5).toLowerCase() === "false") {
+                result2 = input.substr(pos, 5);
+                pos += 5;
+              } else {
+                result2 = null;
+                if (reportFailures === 0) {
+                  matchFailed("\"false\"");
+                }
+              }
+              if (result2 !== null) {
+                result2 = function (offset) {
+                  data.userhash = false;
+                }(pos1);
+              }
+              if (result2 === null) {
+                pos = pos1;
+              }
+            }
+            if (result2 !== null) {
+              result0 = [result0, result1, result2];
+            } else {
+              result0 = null;
+              pos = pos0;
+            }
+          } else {
+            result0 = null;
+            pos = pos0;
+          }
+        } else {
+          result0 = null;
+          pos = pos0;
+        }
+        return result0;
+      }
+      function parse_charset() {
+        var result0, result1, result2;
+        var pos0, pos1;
+        pos0 = pos;
+        pos1 = pos;
+        if (input.substr(pos, 7).toLowerCase() === "charset") {
+          result0 = input.substr(pos, 7);
+          pos += 7;
+        } else {
+          result0 = null;
+          if (reportFailures === 0) {
+            matchFailed("\"charset\"");
+          }
+        }
+        if (result0 !== null) {
+          result1 = parse_EQUAL();
+          if (result1 !== null) {
+            if (input.substr(pos, 5).toLowerCase() === "utf-8") {
+              result2 = input.substr(pos, 5);
+              pos += 5;
+            } else {
+              result2 = null;
+              if (reportFailures === 0) {
+                matchFailed("\"UTF-8\"");
+              }
+            }
+            if (result2 === null) {
+              result2 = parse_token();
+            }
+            if (result2 !== null) {
+              result0 = [result0, result1, result2];
+            } else {
+              result0 = null;
+              pos = pos1;
+            }
+          } else {
+            result0 = null;
+            pos = pos1;
+          }
+        } else {
+          result0 = null;
+          pos = pos1;
+        }
+        if (result0 !== null) {
+          result0 = function (offset, charset) {
+            data.charset = charset.toUpperCase();
+          }(pos0, result0[2]);
         }
         if (result0 === null) {
           pos = pos0;
@@ -13564,7 +13785,7 @@ module.exports = {
     return pkg.version;
   }
 };
-},{"../package.json":42,"./Constants":2,"./Exceptions":6,"./Grammar":7,"./NameAddrHeader":11,"./UA":28,"./URI":29,"./Utils":30,"./WebSocketInterface":31,"debug":34}],9:[function(require,module,exports){
+},{"../package.json":50,"./Constants":2,"./Exceptions":6,"./Grammar":7,"./NameAddrHeader":11,"./UA":28,"./URI":29,"./Utils":30,"./WebSocketInterface":31,"debug":42}],9:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -13611,7 +13832,7 @@ module.exports = /*#__PURE__*/function () {
   }]);
   return Logger;
 }();
-},{"debug":34}],10:[function(require,module,exports){
+},{"debug":42}],10:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -13875,7 +14096,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
   }]);
   return Message;
 }(EventEmitter);
-},{"./Constants":2,"./Exceptions":6,"./Logger":9,"./RequestSender":21,"./SIPMessage":22,"./URI":29,"./Utils":30,"events":33}],11:[function(require,module,exports){
+},{"./Constants":2,"./Exceptions":6,"./Logger":9,"./RequestSender":21,"./SIPMessage":22,"./URI":29,"./Utils":30,"events":41}],11:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -14336,7 +14557,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
   }]);
   return Notifier;
 }(EventEmitter);
-},{"./Constants":2,"./Dialog":3,"./Logger":9,"./Utils":30,"events":33}],13:[function(require,module,exports){
+},{"./Constants":2,"./Dialog":3,"./Logger":9,"./Utils":30,"events":41}],13:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -14591,7 +14812,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
   }]);
   return Options;
 }(EventEmitter);
-},{"./Constants":2,"./Exceptions":6,"./Logger":9,"./RequestSender":21,"./SIPMessage":22,"./Utils":30,"events":33}],14:[function(require,module,exports){
+},{"./Constants":2,"./Exceptions":6,"./Logger":9,"./RequestSender":21,"./SIPMessage":22,"./Utils":30,"events":41}],14:[function(require,module,exports){
 "use strict";
 
 function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
@@ -14814,12 +15035,12 @@ function parseHeader(message, data, headerStart, headerEnd) {
       parsed = message.parseHeader('max-forwards');
       break;
     case 'www-authenticate':
-      message.setHeader('www-authenticate', headerValue);
-      parsed = message.parseHeader('www-authenticate');
+      message.addHeader('www-authenticate', headerValue);
+      parsed = message.parseHeader('www-authenticate', message.getHeaders('www-authenticate').length - 1);
       break;
     case 'proxy-authenticate':
-      message.setHeader('proxy-authenticate', headerValue);
-      parsed = message.parseHeader('proxy-authenticate');
+      message.addHeader('proxy-authenticate', headerValue);
+      parsed = message.parseHeader('proxy-authenticate', message.getHeaders('proxy-authenticate').length - 1);
       break;
     case 'session-expires':
     case 'x':
@@ -17895,7 +18116,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
   }]);
   return RTCSession;
 }(EventEmitter);
-},{"./Constants":2,"./Dialog":3,"./Exceptions":6,"./Logger":9,"./RTCSession/DTMF":16,"./RTCSession/Info":17,"./RTCSession/ReferNotifier":18,"./RTCSession/ReferSubscriber":19,"./RequestSender":21,"./SIPMessage":22,"./Timers":25,"./Transactions":26,"./URI":29,"./Utils":30,"events":33,"sdp-transform":39}],16:[function(require,module,exports){
+},{"./Constants":2,"./Dialog":3,"./Exceptions":6,"./Logger":9,"./RTCSession/DTMF":16,"./RTCSession/Info":17,"./RTCSession/ReferNotifier":18,"./RTCSession/ReferSubscriber":19,"./RequestSender":21,"./SIPMessage":22,"./Timers":25,"./Transactions":26,"./URI":29,"./Utils":30,"events":41,"sdp-transform":47}],16:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -18064,7 +18285,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
  * Expose C object.
  */
 module.exports.C = C;
-},{"../Constants":2,"../Exceptions":6,"../Logger":9,"../Utils":30,"events":33}],17:[function(require,module,exports){
+},{"../Constants":2,"../Exceptions":6,"../Logger":9,"../Utils":30,"events":41}],17:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -18175,7 +18396,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
   }]);
   return Info;
 }(EventEmitter);
-},{"../Constants":2,"../Exceptions":6,"../Utils":30,"events":33}],18:[function(require,module,exports){
+},{"../Constants":2,"../Exceptions":6,"../Utils":30,"events":41}],18:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -18391,7 +18612,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
   }]);
   return ReferSubscriber;
 }(EventEmitter);
-},{"../Constants":2,"../Grammar":7,"../Logger":9,"../Utils":30,"events":33}],20:[function(require,module,exports){
+},{"../Constants":2,"../Grammar":7,"../Logger":9,"../Utils":30,"events":41}],20:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -18823,13 +19044,37 @@ module.exports = /*#__PURE__*/function () {
       * Authenticate once. _challenged_ flag used to avoid infinite authentications.
       */
       if ((status_code === 401 || status_code === 407) && (this._ua.configuration.password !== null || this._ua.configuration.ha1 !== null)) {
-        // Get and parse the appropriate WWW-Authenticate or Proxy-Authenticate header.
+        var authenticateType;
         if (response.status_code === 401) {
-          challenge = response.parseHeader('www-authenticate');
+          authenticateType = 'www-authenticate';
           authorization_header_name = 'authorization';
         } else {
-          challenge = response.parseHeader('proxy-authenticate');
+          authenticateType = 'proxy-authenticate';
           authorization_header_name = 'proxy-authorization';
+        }
+        var nrChallenges = response.getHeaders(authenticateType).length;
+
+        // Verify it seems a valid challenge.
+        if (nrChallenges === 0) {
+          logger.debug("".concat(response.status_code, " with wrong or missing challenge, cannot authenticate"));
+          this._eventHandlers.onReceiveResponse(response);
+          return;
+        }
+
+        // If there are multiple challenges in the response then we have to pick the
+        // first one with a supported algorithm while skipping those with unsupported algorithms.
+        for (var i = 0; i < nrChallenges; i++) {
+          var challengeCandidate = response.parseHeader(authenticateType, i);
+
+          // According to RFC 8760, section 2.4, "The client MUST ignore any challenge it
+          // does not understand." A parsing error might be interpreted that way.
+          if (!challengeCandidate) {
+            continue;
+          }
+          if (challengeCandidate.algorithm === undefined || /^MD5$|^MD5-SESS$|^SHA-256$|^SHA-256-SESS$|^SHA-512-256$|^SHA-512-256-SESS$/.test(challengeCandidate.algorithm)) {
+            challenge = challengeCandidate;
+            break;
+          }
         }
 
         // Verify it seems a valid challenge.
@@ -19647,7 +19892,7 @@ module.exports = {
   IncomingRequest: IncomingRequest,
   IncomingResponse: IncomingResponse
 };
-},{"./Constants":2,"./Grammar":7,"./Logger":9,"./NameAddrHeader":11,"./Utils":30,"sdp-transform":39}],23:[function(require,module,exports){
+},{"./Constants":2,"./Grammar":7,"./Logger":9,"./NameAddrHeader":11,"./Utils":30,"sdp-transform":47}],23:[function(require,module,exports){
 "use strict";
 
 var Logger = require('./Logger');
@@ -20247,7 +20492,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
   }]);
   return Subscriber;
 }(EventEmitter);
-},{"./Constants":2,"./Dialog":3,"./Grammar":7,"./Logger":9,"./RequestSender":21,"./SIPMessage":22,"./Utils":30,"events":33}],25:[function(require,module,exports){
+},{"./Constants":2,"./Dialog":3,"./Grammar":7,"./Logger":9,"./RequestSender":21,"./SIPMessage":22,"./Utils":30,"events":41}],25:[function(require,module,exports){
 "use strict";
 
 var T1 = 500,
@@ -20977,7 +21222,7 @@ module.exports = {
   InviteServerTransaction: InviteServerTransaction,
   checkTransaction: checkTransaction
 };
-},{"./Constants":2,"./Logger":9,"./SIPMessage":22,"./Timers":25,"events":33}],27:[function(require,module,exports){
+},{"./Constants":2,"./Logger":9,"./SIPMessage":22,"./Timers":25,"events":41}],27:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -22299,7 +22544,7 @@ function onTransportData(data) {
     }
   }
 }
-},{"./Config":1,"./Constants":2,"./Exceptions":6,"./Logger":9,"./Message":10,"./Notifier":12,"./Options":13,"./Parser":14,"./RTCSession":15,"./Registrator":20,"./SIPMessage":22,"./Subscriber":24,"./Transactions":26,"./Transport":27,"./URI":29,"./Utils":30,"./sanityCheck":32,"events":33}],29:[function(require,module,exports){
+},{"./Config":1,"./Constants":2,"./Exceptions":6,"./Logger":9,"./Message":10,"./Notifier":12,"./Options":13,"./Parser":14,"./RTCSession":15,"./Registrator":20,"./SIPMessage":22,"./Subscriber":24,"./Transactions":26,"./Transport":27,"./URI":29,"./Utils":30,"./sanityCheck":32,"events":41}],29:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -22541,6 +22786,10 @@ function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len 
 var JsSIP_C = require('./Constants');
 var URI = require('./URI');
 var Grammar = require('./Grammar');
+var SlUtf8 = require('@stablelib/utf8');
+var SlHex = require('@stablelib/hex');
+var SlSha256 = require('@stablelib/sha256');
+var SlSha512_256 = require('@stablelib/sha512_256');
 exports.str_utf8_length = function (string) {
   return unescape(encodeURIComponent(string)).length;
 };
@@ -22996,7 +23245,13 @@ exports.cloneObject = function (obj) {
   var fallback = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
   return obj && Object.assign({}, obj) || fallback;
 };
-},{"./Constants":2,"./Grammar":7,"./URI":29}],31:[function(require,module,exports){
+exports.calculateSHA256 = function (s) {
+  return SlHex.encode(SlSha256.hash(SlUtf8.encode(s)), true);
+};
+exports.calculateSHA512_256 = function (s) {
+  return SlHex.encode(SlSha512_256.hash(SlUtf8.encode(s)), true);
+};
+},{"./Constants":2,"./Grammar":7,"./URI":29,"@stablelib/hex":34,"@stablelib/sha256":36,"@stablelib/sha512_256":38,"@stablelib/utf8":39}],31:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
@@ -23355,6 +23610,1662 @@ function reply(status_code) {
   transport.send(response);
 }
 },{"./Constants":2,"./Logger":9,"./SIPMessage":22,"./Utils":30}],33:[function(require,module,exports){
+"use strict";
+// Copyright (C) 2016 Dmitry Chestnykh
+// MIT License. See LICENSE file for details.
+Object.defineProperty(exports, "__esModule", { value: true });
+/**
+ * Package binary provides functions for encoding and decoding numbers in byte arrays.
+ */
+var int_1 = require("@stablelib/int");
+// TODO(dchest): add asserts for correct value ranges and array offsets.
+/**
+ * Reads 2 bytes from array starting at offset as big-endian
+ * signed 16-bit integer and returns it.
+ */
+function readInt16BE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    return (((array[offset + 0] << 8) | array[offset + 1]) << 16) >> 16;
+}
+exports.readInt16BE = readInt16BE;
+/**
+ * Reads 2 bytes from array starting at offset as big-endian
+ * unsigned 16-bit integer and returns it.
+ */
+function readUint16BE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    return ((array[offset + 0] << 8) | array[offset + 1]) >>> 0;
+}
+exports.readUint16BE = readUint16BE;
+/**
+ * Reads 2 bytes from array starting at offset as little-endian
+ * signed 16-bit integer and returns it.
+ */
+function readInt16LE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    return (((array[offset + 1] << 8) | array[offset]) << 16) >> 16;
+}
+exports.readInt16LE = readInt16LE;
+/**
+ * Reads 2 bytes from array starting at offset as little-endian
+ * unsigned 16-bit integer and returns it.
+ */
+function readUint16LE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    return ((array[offset + 1] << 8) | array[offset]) >>> 0;
+}
+exports.readUint16LE = readUint16LE;
+/**
+ * Writes 2-byte big-endian representation of 16-bit unsigned
+ * value to byte array starting at offset.
+ *
+ * If byte array is not given, creates a new 2-byte one.
+ *
+ * Returns the output byte array.
+ */
+function writeUint16BE(value, out, offset) {
+    if (out === void 0) { out = new Uint8Array(2); }
+    if (offset === void 0) { offset = 0; }
+    out[offset + 0] = value >>> 8;
+    out[offset + 1] = value >>> 0;
+    return out;
+}
+exports.writeUint16BE = writeUint16BE;
+exports.writeInt16BE = writeUint16BE;
+/**
+ * Writes 2-byte little-endian representation of 16-bit unsigned
+ * value to array starting at offset.
+ *
+ * If byte array is not given, creates a new 2-byte one.
+ *
+ * Returns the output byte array.
+ */
+function writeUint16LE(value, out, offset) {
+    if (out === void 0) { out = new Uint8Array(2); }
+    if (offset === void 0) { offset = 0; }
+    out[offset + 0] = value >>> 0;
+    out[offset + 1] = value >>> 8;
+    return out;
+}
+exports.writeUint16LE = writeUint16LE;
+exports.writeInt16LE = writeUint16LE;
+/**
+ * Reads 4 bytes from array starting at offset as big-endian
+ * signed 32-bit integer and returns it.
+ */
+function readInt32BE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    return (array[offset] << 24) |
+        (array[offset + 1] << 16) |
+        (array[offset + 2] << 8) |
+        array[offset + 3];
+}
+exports.readInt32BE = readInt32BE;
+/**
+ * Reads 4 bytes from array starting at offset as big-endian
+ * unsigned 32-bit integer and returns it.
+ */
+function readUint32BE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    return ((array[offset] << 24) |
+        (array[offset + 1] << 16) |
+        (array[offset + 2] << 8) |
+        array[offset + 3]) >>> 0;
+}
+exports.readUint32BE = readUint32BE;
+/**
+ * Reads 4 bytes from array starting at offset as little-endian
+ * signed 32-bit integer and returns it.
+ */
+function readInt32LE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    return (array[offset + 3] << 24) |
+        (array[offset + 2] << 16) |
+        (array[offset + 1] << 8) |
+        array[offset];
+}
+exports.readInt32LE = readInt32LE;
+/**
+ * Reads 4 bytes from array starting at offset as little-endian
+ * unsigned 32-bit integer and returns it.
+ */
+function readUint32LE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    return ((array[offset + 3] << 24) |
+        (array[offset + 2] << 16) |
+        (array[offset + 1] << 8) |
+        array[offset]) >>> 0;
+}
+exports.readUint32LE = readUint32LE;
+/**
+ * Writes 4-byte big-endian representation of 32-bit unsigned
+ * value to byte array starting at offset.
+ *
+ * If byte array is not given, creates a new 4-byte one.
+ *
+ * Returns the output byte array.
+ */
+function writeUint32BE(value, out, offset) {
+    if (out === void 0) { out = new Uint8Array(4); }
+    if (offset === void 0) { offset = 0; }
+    out[offset + 0] = value >>> 24;
+    out[offset + 1] = value >>> 16;
+    out[offset + 2] = value >>> 8;
+    out[offset + 3] = value >>> 0;
+    return out;
+}
+exports.writeUint32BE = writeUint32BE;
+exports.writeInt32BE = writeUint32BE;
+/**
+ * Writes 4-byte little-endian representation of 32-bit unsigned
+ * value to array starting at offset.
+ *
+ * If byte array is not given, creates a new 4-byte one.
+ *
+ * Returns the output byte array.
+ */
+function writeUint32LE(value, out, offset) {
+    if (out === void 0) { out = new Uint8Array(4); }
+    if (offset === void 0) { offset = 0; }
+    out[offset + 0] = value >>> 0;
+    out[offset + 1] = value >>> 8;
+    out[offset + 2] = value >>> 16;
+    out[offset + 3] = value >>> 24;
+    return out;
+}
+exports.writeUint32LE = writeUint32LE;
+exports.writeInt32LE = writeUint32LE;
+/**
+ * Reads 8 bytes from array starting at offset as big-endian
+ * signed 64-bit integer and returns it.
+ *
+ * IMPORTANT: due to JavaScript limitation, supports exact
+ * numbers in range -9007199254740991 to 9007199254740991.
+ * If the number stored in the byte array is outside this range,
+ * the result is not exact.
+ */
+function readInt64BE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    var hi = readInt32BE(array, offset);
+    var lo = readInt32BE(array, offset + 4);
+    return hi * 0x100000000 + lo - ((lo >> 31) * 0x100000000);
+}
+exports.readInt64BE = readInt64BE;
+/**
+ * Reads 8 bytes from array starting at offset as big-endian
+ * unsigned 64-bit integer and returns it.
+ *
+ * IMPORTANT: due to JavaScript limitation, supports values up to 2^53-1.
+ */
+function readUint64BE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    var hi = readUint32BE(array, offset);
+    var lo = readUint32BE(array, offset + 4);
+    return hi * 0x100000000 + lo;
+}
+exports.readUint64BE = readUint64BE;
+/**
+ * Reads 8 bytes from array starting at offset as little-endian
+ * signed 64-bit integer and returns it.
+ *
+ * IMPORTANT: due to JavaScript limitation, supports exact
+ * numbers in range -9007199254740991 to 9007199254740991.
+ * If the number stored in the byte array is outside this range,
+ * the result is not exact.
+ */
+function readInt64LE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    var lo = readInt32LE(array, offset);
+    var hi = readInt32LE(array, offset + 4);
+    return hi * 0x100000000 + lo - ((lo >> 31) * 0x100000000);
+}
+exports.readInt64LE = readInt64LE;
+/**
+ * Reads 8 bytes from array starting at offset as little-endian
+ * unsigned 64-bit integer and returns it.
+ *
+ * IMPORTANT: due to JavaScript limitation, supports values up to 2^53-1.
+ */
+function readUint64LE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    var lo = readUint32LE(array, offset);
+    var hi = readUint32LE(array, offset + 4);
+    return hi * 0x100000000 + lo;
+}
+exports.readUint64LE = readUint64LE;
+/**
+ * Writes 8-byte big-endian representation of 64-bit unsigned
+ * value to byte array starting at offset.
+ *
+ * Due to JavaScript limitation, supports values up to 2^53-1.
+ *
+ * If byte array is not given, creates a new 8-byte one.
+ *
+ * Returns the output byte array.
+ */
+function writeUint64BE(value, out, offset) {
+    if (out === void 0) { out = new Uint8Array(8); }
+    if (offset === void 0) { offset = 0; }
+    writeUint32BE(value / 0x100000000 >>> 0, out, offset);
+    writeUint32BE(value >>> 0, out, offset + 4);
+    return out;
+}
+exports.writeUint64BE = writeUint64BE;
+exports.writeInt64BE = writeUint64BE;
+/**
+ * Writes 8-byte little-endian representation of 64-bit unsigned
+ * value to byte array starting at offset.
+ *
+ * Due to JavaScript limitation, supports values up to 2^53-1.
+ *
+ * If byte array is not given, creates a new 8-byte one.
+ *
+ * Returns the output byte array.
+ */
+function writeUint64LE(value, out, offset) {
+    if (out === void 0) { out = new Uint8Array(8); }
+    if (offset === void 0) { offset = 0; }
+    writeUint32LE(value >>> 0, out, offset);
+    writeUint32LE(value / 0x100000000 >>> 0, out, offset + 4);
+    return out;
+}
+exports.writeUint64LE = writeUint64LE;
+exports.writeInt64LE = writeUint64LE;
+/**
+ * Reads bytes from array starting at offset as big-endian
+ * unsigned bitLen-bit integer and returns it.
+ *
+ * Supports bit lengths divisible by 8, up to 48.
+ */
+function readUintBE(bitLength, array, offset) {
+    if (offset === void 0) { offset = 0; }
+    // TODO(dchest): implement support for bitLengths non-divisible by 8
+    if (bitLength % 8 !== 0) {
+        throw new Error("readUintBE supports only bitLengths divisible by 8");
+    }
+    if (bitLength / 8 > array.length - offset) {
+        throw new Error("readUintBE: array is too short for the given bitLength");
+    }
+    var result = 0;
+    var mul = 1;
+    for (var i = bitLength / 8 + offset - 1; i >= offset; i--) {
+        result += array[i] * mul;
+        mul *= 256;
+    }
+    return result;
+}
+exports.readUintBE = readUintBE;
+/**
+ * Reads bytes from array starting at offset as little-endian
+ * unsigned bitLen-bit integer and returns it.
+ *
+ * Supports bit lengths divisible by 8, up to 48.
+ */
+function readUintLE(bitLength, array, offset) {
+    if (offset === void 0) { offset = 0; }
+    // TODO(dchest): implement support for bitLengths non-divisible by 8
+    if (bitLength % 8 !== 0) {
+        throw new Error("readUintLE supports only bitLengths divisible by 8");
+    }
+    if (bitLength / 8 > array.length - offset) {
+        throw new Error("readUintLE: array is too short for the given bitLength");
+    }
+    var result = 0;
+    var mul = 1;
+    for (var i = offset; i < offset + bitLength / 8; i++) {
+        result += array[i] * mul;
+        mul *= 256;
+    }
+    return result;
+}
+exports.readUintLE = readUintLE;
+/**
+ * Writes a big-endian representation of bitLen-bit unsigned
+ * value to array starting at offset.
+ *
+ * Supports bit lengths divisible by 8, up to 48.
+ *
+ * If byte array is not given, creates a new one.
+ *
+ * Returns the output byte array.
+ */
+function writeUintBE(bitLength, value, out, offset) {
+    if (out === void 0) { out = new Uint8Array(bitLength / 8); }
+    if (offset === void 0) { offset = 0; }
+    // TODO(dchest): implement support for bitLengths non-divisible by 8
+    if (bitLength % 8 !== 0) {
+        throw new Error("writeUintBE supports only bitLengths divisible by 8");
+    }
+    if (!int_1.isSafeInteger(value)) {
+        throw new Error("writeUintBE value must be an integer");
+    }
+    var div = 1;
+    for (var i = bitLength / 8 + offset - 1; i >= offset; i--) {
+        out[i] = (value / div) & 0xff;
+        div *= 256;
+    }
+    return out;
+}
+exports.writeUintBE = writeUintBE;
+/**
+ * Writes a little-endian representation of bitLen-bit unsigned
+ * value to array starting at offset.
+ *
+ * Supports bit lengths divisible by 8, up to 48.
+ *
+ * If byte array is not given, creates a new one.
+ *
+ * Returns the output byte array.
+ */
+function writeUintLE(bitLength, value, out, offset) {
+    if (out === void 0) { out = new Uint8Array(bitLength / 8); }
+    if (offset === void 0) { offset = 0; }
+    // TODO(dchest): implement support for bitLengths non-divisible by 8
+    if (bitLength % 8 !== 0) {
+        throw new Error("writeUintLE supports only bitLengths divisible by 8");
+    }
+    if (!int_1.isSafeInteger(value)) {
+        throw new Error("writeUintLE value must be an integer");
+    }
+    var div = 1;
+    for (var i = offset; i < offset + bitLength / 8; i++) {
+        out[i] = (value / div) & 0xff;
+        div *= 256;
+    }
+    return out;
+}
+exports.writeUintLE = writeUintLE;
+/**
+ * Reads 4 bytes from array starting at offset as big-endian
+ * 32-bit floating-point number and returns it.
+ */
+function readFloat32BE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    var view = new DataView(array.buffer, array.byteOffset, array.byteLength);
+    return view.getFloat32(offset);
+}
+exports.readFloat32BE = readFloat32BE;
+/**
+ * Reads 4 bytes from array starting at offset as little-endian
+ * 32-bit floating-point number and returns it.
+ */
+function readFloat32LE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    var view = new DataView(array.buffer, array.byteOffset, array.byteLength);
+    return view.getFloat32(offset, true);
+}
+exports.readFloat32LE = readFloat32LE;
+/**
+ * Reads 8 bytes from array starting at offset as big-endian
+ * 64-bit floating-point number ("double") and returns it.
+ */
+function readFloat64BE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    var view = new DataView(array.buffer, array.byteOffset, array.byteLength);
+    return view.getFloat64(offset);
+}
+exports.readFloat64BE = readFloat64BE;
+/**
+ * Reads 8 bytes from array starting at offset as little-endian
+ * 64-bit floating-point number ("double") and returns it.
+ */
+function readFloat64LE(array, offset) {
+    if (offset === void 0) { offset = 0; }
+    var view = new DataView(array.buffer, array.byteOffset, array.byteLength);
+    return view.getFloat64(offset, true);
+}
+exports.readFloat64LE = readFloat64LE;
+/**
+ * Writes 4-byte big-endian floating-point representation of value
+ * to byte array starting at offset.
+ *
+ * If byte array is not given, creates a new 4-byte one.
+ *
+ * Returns the output byte array.
+ */
+function writeFloat32BE(value, out, offset) {
+    if (out === void 0) { out = new Uint8Array(4); }
+    if (offset === void 0) { offset = 0; }
+    var view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+    view.setFloat32(offset, value);
+    return out;
+}
+exports.writeFloat32BE = writeFloat32BE;
+/**
+ * Writes 4-byte little-endian floating-point representation of value
+ * to byte array starting at offset.
+ *
+ * If byte array is not given, creates a new 4-byte one.
+ *
+ * Returns the output byte array.
+ */
+function writeFloat32LE(value, out, offset) {
+    if (out === void 0) { out = new Uint8Array(4); }
+    if (offset === void 0) { offset = 0; }
+    var view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+    view.setFloat32(offset, value, true);
+    return out;
+}
+exports.writeFloat32LE = writeFloat32LE;
+/**
+ * Writes 8-byte big-endian floating-point representation of value
+ * to byte array starting at offset.
+ *
+ * If byte array is not given, creates a new 8-byte one.
+ *
+ * Returns the output byte array.
+ */
+function writeFloat64BE(value, out, offset) {
+    if (out === void 0) { out = new Uint8Array(8); }
+    if (offset === void 0) { offset = 0; }
+    var view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+    view.setFloat64(offset, value);
+    return out;
+}
+exports.writeFloat64BE = writeFloat64BE;
+/**
+ * Writes 8-byte little-endian floating-point representation of value
+ * to byte array starting at offset.
+ *
+ * If byte array is not given, creates a new 8-byte one.
+ *
+ * Returns the output byte array.
+ */
+function writeFloat64LE(value, out, offset) {
+    if (out === void 0) { out = new Uint8Array(8); }
+    if (offset === void 0) { offset = 0; }
+    var view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+    view.setFloat64(offset, value, true);
+    return out;
+}
+exports.writeFloat64LE = writeFloat64LE;
+
+},{"@stablelib/int":35}],34:[function(require,module,exports){
+"use strict";
+// Copyright (C) 2016 Dmitry Chestnykh
+// MIT License. See LICENSE file for details.
+Object.defineProperty(exports, "__esModule", { value: true });
+/**
+ * Package hex implements hex encoder and decoder.
+ */
+//        0123456789  ABCDEF  | abcdef
+// Index:    0 - 9    10-15   | 10-15
+// ASCII:   48 - 57   65-70   | 97-102
+function encodeNibble(b) {
+    // b >= 0
+    var result = b + 48;
+    // b > 9
+    result += ((9 - b) >>> 8) & (-48 + 65 - 10);
+    return String.fromCharCode(result);
+}
+function encodeNibbleLower(b) {
+    // b >= 0
+    var result = b + 48;
+    // b > 9
+    result += ((9 - b) >>> 8) & (-48 + 97 - 10);
+    return String.fromCharCode(result);
+}
+// Invalid character used in decoding to indicate
+// that the character to decode is out of range of
+// hex alphabet and cannot be decoded.
+var INVALID_HEX_NIBBLE = 256;
+function decodeNibble(c) {
+    var result = INVALID_HEX_NIBBLE;
+    // 0-9: c > 47 and c < 58
+    result += (((47 - c) & (c - 58)) >> 8) & (-INVALID_HEX_NIBBLE + c - 48);
+    // A-F: c > 64 and c < 71
+    result += (((64 - c) & (c - 71)) >> 8) & (-INVALID_HEX_NIBBLE + c - 65 + 10);
+    // a-f: c > 96 and c < 103
+    result += (((96 - c) & (c - 103)) >> 8) & (-INVALID_HEX_NIBBLE + c - 97 + 10);
+    return result;
+}
+/**
+ * Returns string with hex-encoded data.
+ */
+function encode(data, lowerCase) {
+    if (lowerCase === void 0) { lowerCase = false; }
+    var enc = lowerCase ? encodeNibbleLower : encodeNibble;
+    var s = "";
+    for (var i = 0; i < data.length; i++) {
+        s += enc(data[i] >>> 4);
+        s += enc(data[i] & 0x0f);
+    }
+    return s;
+}
+exports.encode = encode;
+/**
+ * Returns Uint8Array with data decoded from hex string.
+ *
+ * Throws error if hex string length is not divisible by 2 or has non-hex
+ * characters.
+ */
+function decode(hex) {
+    if (hex.length === 0) {
+        return new Uint8Array(0);
+    }
+    if (hex.length % 2 !== 0) {
+        throw new Error("hex: input string must be divisible by two");
+    }
+    var result = new Uint8Array(hex.length / 2);
+    var haveBad = 0;
+    for (var i = 0; i < hex.length; i += 2) {
+        var v0 = decodeNibble(hex.charCodeAt(i));
+        var v1 = decodeNibble(hex.charCodeAt(i + 1));
+        result[i / 2] = v0 << 4 | v1;
+        haveBad |= v0 & INVALID_HEX_NIBBLE;
+        haveBad |= v1 & INVALID_HEX_NIBBLE;
+    }
+    if (haveBad !== 0) {
+        throw new Error("hex: incorrect characters for decoding");
+    }
+    return result;
+}
+exports.decode = decode;
+
+},{}],35:[function(require,module,exports){
+"use strict";
+// Copyright (C) 2016 Dmitry Chestnykh
+// MIT License. See LICENSE file for details.
+Object.defineProperty(exports, "__esModule", { value: true });
+/**
+ * Package int provides helper functions for integerss.
+ */
+// Shim using 16-bit pieces.
+function imulShim(a, b) {
+    var ah = (a >>> 16) & 0xffff, al = a & 0xffff;
+    var bh = (b >>> 16) & 0xffff, bl = b & 0xffff;
+    return ((al * bl) + (((ah * bl + al * bh) << 16) >>> 0) | 0);
+}
+/** 32-bit integer multiplication.  */
+// Use system Math.imul if available, otherwise use our shim.
+exports.mul = Math.imul || imulShim;
+/** 32-bit integer addition.  */
+function add(a, b) {
+    return (a + b) | 0;
+}
+exports.add = add;
+/**  32-bit integer subtraction.  */
+function sub(a, b) {
+    return (a - b) | 0;
+}
+exports.sub = sub;
+/** 32-bit integer left rotation */
+function rotl(x, n) {
+    return x << n | x >>> (32 - n);
+}
+exports.rotl = rotl;
+/** 32-bit integer left rotation */
+function rotr(x, n) {
+    return x << (32 - n) | x >>> n;
+}
+exports.rotr = rotr;
+function isIntegerShim(n) {
+    return typeof n === "number" && isFinite(n) && Math.floor(n) === n;
+}
+/**
+ * Returns true if the argument is an integer number.
+ *
+ * In ES2015, Number.isInteger.
+ */
+exports.isInteger = Number.isInteger || isIntegerShim;
+/**
+ *  Math.pow(2, 53) - 1
+ *
+ *  In ES2015 Number.MAX_SAFE_INTEGER.
+ */
+exports.MAX_SAFE_INTEGER = 9007199254740991;
+/**
+ * Returns true if the argument is a safe integer number
+ * (-MIN_SAFE_INTEGER < number <= MAX_SAFE_INTEGER)
+ *
+ * In ES2015, Number.isSafeInteger.
+ */
+exports.isSafeInteger = function (n) {
+    return exports.isInteger(n) && (n >= -exports.MAX_SAFE_INTEGER && n <= exports.MAX_SAFE_INTEGER);
+};
+
+},{}],36:[function(require,module,exports){
+"use strict";
+// Copyright (C) 2016 Dmitry Chestnykh
+// MIT License. See LICENSE file for details.
+Object.defineProperty(exports, "__esModule", { value: true });
+var binary_1 = require("@stablelib/binary");
+var wipe_1 = require("@stablelib/wipe");
+exports.DIGEST_LENGTH = 32;
+exports.BLOCK_SIZE = 64;
+/**
+ * SHA2-256 cryptographic hash algorithm.
+ */
+var SHA256 = /** @class */ (function () {
+    function SHA256() {
+        /** Length of hash output */
+        this.digestLength = exports.DIGEST_LENGTH;
+        /** Block size */
+        this.blockSize = exports.BLOCK_SIZE;
+        // Note: Int32Array is used instead of Uint32Array for performance reasons.
+        this._state = new Int32Array(8); // hash state
+        this._temp = new Int32Array(64); // temporary state
+        this._buffer = new Uint8Array(128); // buffer for data to hash
+        this._bufferLength = 0; // number of bytes in buffer
+        this._bytesHashed = 0; // number of total bytes hashed
+        this._finished = false; // indicates whether the hash was finalized
+        this.reset();
+    }
+    SHA256.prototype._initState = function () {
+        this._state[0] = 0x6a09e667;
+        this._state[1] = 0xbb67ae85;
+        this._state[2] = 0x3c6ef372;
+        this._state[3] = 0xa54ff53a;
+        this._state[4] = 0x510e527f;
+        this._state[5] = 0x9b05688c;
+        this._state[6] = 0x1f83d9ab;
+        this._state[7] = 0x5be0cd19;
+    };
+    /**
+     * Resets hash state making it possible
+     * to re-use this instance to hash other data.
+     */
+    SHA256.prototype.reset = function () {
+        this._initState();
+        this._bufferLength = 0;
+        this._bytesHashed = 0;
+        this._finished = false;
+        return this;
+    };
+    /**
+     * Cleans internal buffers and resets hash state.
+     */
+    SHA256.prototype.clean = function () {
+        wipe_1.wipe(this._buffer);
+        wipe_1.wipe(this._temp);
+        this.reset();
+    };
+    /**
+     * Updates hash state with the given data.
+     *
+     * Throws error when trying to update already finalized hash:
+     * instance must be reset to update it again.
+     */
+    SHA256.prototype.update = function (data, dataLength) {
+        if (dataLength === void 0) { dataLength = data.length; }
+        if (this._finished) {
+            throw new Error("SHA256: can't update because hash was finished.");
+        }
+        var dataPos = 0;
+        this._bytesHashed += dataLength;
+        if (this._bufferLength > 0) {
+            while (this._bufferLength < this.blockSize && dataLength > 0) {
+                this._buffer[this._bufferLength++] = data[dataPos++];
+                dataLength--;
+            }
+            if (this._bufferLength === this.blockSize) {
+                hashBlocks(this._temp, this._state, this._buffer, 0, this.blockSize);
+                this._bufferLength = 0;
+            }
+        }
+        if (dataLength >= this.blockSize) {
+            dataPos = hashBlocks(this._temp, this._state, data, dataPos, dataLength);
+            dataLength %= this.blockSize;
+        }
+        while (dataLength > 0) {
+            this._buffer[this._bufferLength++] = data[dataPos++];
+            dataLength--;
+        }
+        return this;
+    };
+    /**
+     * Finalizes hash state and puts hash into out.
+     * If hash was already finalized, puts the same value.
+     */
+    SHA256.prototype.finish = function (out) {
+        if (!this._finished) {
+            var bytesHashed = this._bytesHashed;
+            var left = this._bufferLength;
+            var bitLenHi = (bytesHashed / 0x20000000) | 0;
+            var bitLenLo = bytesHashed << 3;
+            var padLength = (bytesHashed % 64 < 56) ? 64 : 128;
+            this._buffer[left] = 0x80;
+            for (var i = left + 1; i < padLength - 8; i++) {
+                this._buffer[i] = 0;
+            }
+            binary_1.writeUint32BE(bitLenHi, this._buffer, padLength - 8);
+            binary_1.writeUint32BE(bitLenLo, this._buffer, padLength - 4);
+            hashBlocks(this._temp, this._state, this._buffer, 0, padLength);
+            this._finished = true;
+        }
+        for (var i = 0; i < this.digestLength / 4; i++) {
+            binary_1.writeUint32BE(this._state[i], out, i * 4);
+        }
+        return this;
+    };
+    /**
+     * Returns the final hash digest.
+     */
+    SHA256.prototype.digest = function () {
+        var out = new Uint8Array(this.digestLength);
+        this.finish(out);
+        return out;
+    };
+    /**
+     * Function useful for HMAC/PBKDF2 optimization.
+     * Returns hash state to be used with restoreState().
+     * Only chain value is saved, not buffers or other
+     * state variables.
+     */
+    SHA256.prototype.saveState = function () {
+        if (this._finished) {
+            throw new Error("SHA256: cannot save finished state");
+        }
+        return {
+            state: new Int32Array(this._state),
+            buffer: this._bufferLength > 0 ? new Uint8Array(this._buffer) : undefined,
+            bufferLength: this._bufferLength,
+            bytesHashed: this._bytesHashed
+        };
+    };
+    /**
+     * Function useful for HMAC/PBKDF2 optimization.
+     * Restores state saved by saveState() and sets bytesHashed
+     * to the given value.
+     */
+    SHA256.prototype.restoreState = function (savedState) {
+        this._state.set(savedState.state);
+        this._bufferLength = savedState.bufferLength;
+        if (savedState.buffer) {
+            this._buffer.set(savedState.buffer);
+        }
+        this._bytesHashed = savedState.bytesHashed;
+        this._finished = false;
+        return this;
+    };
+    /**
+     * Cleans state returned by saveState().
+     */
+    SHA256.prototype.cleanSavedState = function (savedState) {
+        wipe_1.wipe(savedState.state);
+        if (savedState.buffer) {
+            wipe_1.wipe(savedState.buffer);
+        }
+        savedState.bufferLength = 0;
+        savedState.bytesHashed = 0;
+    };
+    return SHA256;
+}());
+exports.SHA256 = SHA256;
+// Constants
+var K = new Int32Array([
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b,
+    0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01,
+    0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7,
+    0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+    0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152,
+    0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+    0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+    0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819,
+    0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08,
+    0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f,
+    0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+    0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+]);
+function hashBlocks(w, v, p, pos, len) {
+    while (len >= 64) {
+        var a = v[0];
+        var b = v[1];
+        var c = v[2];
+        var d = v[3];
+        var e = v[4];
+        var f = v[5];
+        var g = v[6];
+        var h = v[7];
+        for (var i = 0; i < 16; i++) {
+            var j = pos + i * 4;
+            w[i] = binary_1.readUint32BE(p, j);
+        }
+        for (var i = 16; i < 64; i++) {
+            var u = w[i - 2];
+            var t1 = (u >>> 17 | u << (32 - 17)) ^ (u >>> 19 | u << (32 - 19)) ^ (u >>> 10);
+            u = w[i - 15];
+            var t2 = (u >>> 7 | u << (32 - 7)) ^ (u >>> 18 | u << (32 - 18)) ^ (u >>> 3);
+            w[i] = (t1 + w[i - 7] | 0) + (t2 + w[i - 16] | 0);
+        }
+        for (var i = 0; i < 64; i++) {
+            var t1 = (((((e >>> 6 | e << (32 - 6)) ^ (e >>> 11 | e << (32 - 11)) ^
+                (e >>> 25 | e << (32 - 25))) + ((e & f) ^ (~e & g))) | 0) +
+                ((h + ((K[i] + w[i]) | 0)) | 0)) | 0;
+            var t2 = (((a >>> 2 | a << (32 - 2)) ^ (a >>> 13 | a << (32 - 13)) ^
+                (a >>> 22 | a << (32 - 22))) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+            h = g;
+            g = f;
+            f = e;
+            e = (d + t1) | 0;
+            d = c;
+            c = b;
+            b = a;
+            a = (t1 + t2) | 0;
+        }
+        v[0] += a;
+        v[1] += b;
+        v[2] += c;
+        v[3] += d;
+        v[4] += e;
+        v[5] += f;
+        v[6] += g;
+        v[7] += h;
+        pos += 64;
+        len -= 64;
+    }
+    return pos;
+}
+function hash(data) {
+    var h = new SHA256();
+    h.update(data);
+    var digest = h.digest();
+    h.clean();
+    return digest;
+}
+exports.hash = hash;
+
+},{"@stablelib/binary":33,"@stablelib/wipe":40}],37:[function(require,module,exports){
+"use strict";
+// Copyright (C) 2016 Dmitry Chestnykh
+// MIT License. See LICENSE file for details.
+Object.defineProperty(exports, "__esModule", { value: true });
+var binary_1 = require("@stablelib/binary");
+var wipe_1 = require("@stablelib/wipe");
+exports.DIGEST_LENGTH = 64;
+exports.BLOCK_SIZE = 128;
+/**
+ * SHA-2-512 cryptographic hash algorithm.
+ */
+var SHA512 = /** @class */ (function () {
+    function SHA512() {
+        /** Length of hash output */
+        this.digestLength = exports.DIGEST_LENGTH;
+        /** Block size */
+        this.blockSize = exports.BLOCK_SIZE;
+        // Note: Int32Array is used instead of Uint32Array for performance reasons.
+        this._stateHi = new Int32Array(8); // hash state, high bytes
+        this._stateLo = new Int32Array(8); // hash state, low bytes
+        this._tempHi = new Int32Array(16); // temporary state, high bytes
+        this._tempLo = new Int32Array(16); // temporary state, low bytes
+        this._buffer = new Uint8Array(256); // buffer for data to hash
+        this._bufferLength = 0; // number of bytes in buffer
+        this._bytesHashed = 0; // number of total bytes hashed
+        this._finished = false; // indicates whether the hash was finalized
+        this.reset();
+    }
+    SHA512.prototype._initState = function () {
+        this._stateHi[0] = 0x6a09e667;
+        this._stateHi[1] = 0xbb67ae85;
+        this._stateHi[2] = 0x3c6ef372;
+        this._stateHi[3] = 0xa54ff53a;
+        this._stateHi[4] = 0x510e527f;
+        this._stateHi[5] = 0x9b05688c;
+        this._stateHi[6] = 0x1f83d9ab;
+        this._stateHi[7] = 0x5be0cd19;
+        this._stateLo[0] = 0xf3bcc908;
+        this._stateLo[1] = 0x84caa73b;
+        this._stateLo[2] = 0xfe94f82b;
+        this._stateLo[3] = 0x5f1d36f1;
+        this._stateLo[4] = 0xade682d1;
+        this._stateLo[5] = 0x2b3e6c1f;
+        this._stateLo[6] = 0xfb41bd6b;
+        this._stateLo[7] = 0x137e2179;
+    };
+    /**
+     * Resets hash state making it possible
+     * to re-use this instance to hash other data.
+     */
+    SHA512.prototype.reset = function () {
+        this._initState();
+        this._bufferLength = 0;
+        this._bytesHashed = 0;
+        this._finished = false;
+        return this;
+    };
+    /**
+     * Cleans internal buffers and resets hash state.
+     */
+    SHA512.prototype.clean = function () {
+        wipe_1.wipe(this._buffer);
+        wipe_1.wipe(this._tempHi);
+        wipe_1.wipe(this._tempLo);
+        this.reset();
+    };
+    /**
+     * Updates hash state with the given data.
+     *
+     * Throws error when trying to update already finalized hash:
+     * instance must be reset to update it again.
+     */
+    SHA512.prototype.update = function (data, dataLength) {
+        if (dataLength === void 0) { dataLength = data.length; }
+        if (this._finished) {
+            throw new Error("SHA512: can't update because hash was finished.");
+        }
+        var dataPos = 0;
+        this._bytesHashed += dataLength;
+        if (this._bufferLength > 0) {
+            while (this._bufferLength < exports.BLOCK_SIZE && dataLength > 0) {
+                this._buffer[this._bufferLength++] = data[dataPos++];
+                dataLength--;
+            }
+            if (this._bufferLength === this.blockSize) {
+                hashBlocks(this._tempHi, this._tempLo, this._stateHi, this._stateLo, this._buffer, 0, this.blockSize);
+                this._bufferLength = 0;
+            }
+        }
+        if (dataLength >= this.blockSize) {
+            dataPos = hashBlocks(this._tempHi, this._tempLo, this._stateHi, this._stateLo, data, dataPos, dataLength);
+            dataLength %= this.blockSize;
+        }
+        while (dataLength > 0) {
+            this._buffer[this._bufferLength++] = data[dataPos++];
+            dataLength--;
+        }
+        return this;
+    };
+    /**
+     * Finalizes hash state and puts hash into out.
+     * If hash was already finalized, puts the same value.
+     */
+    SHA512.prototype.finish = function (out) {
+        if (!this._finished) {
+            var bytesHashed = this._bytesHashed;
+            var left = this._bufferLength;
+            var bitLenHi = (bytesHashed / 0x20000000) | 0;
+            var bitLenLo = bytesHashed << 3;
+            var padLength = (bytesHashed % 128 < 112) ? 128 : 256;
+            this._buffer[left] = 0x80;
+            for (var i = left + 1; i < padLength - 8; i++) {
+                this._buffer[i] = 0;
+            }
+            binary_1.writeUint32BE(bitLenHi, this._buffer, padLength - 8);
+            binary_1.writeUint32BE(bitLenLo, this._buffer, padLength - 4);
+            hashBlocks(this._tempHi, this._tempLo, this._stateHi, this._stateLo, this._buffer, 0, padLength);
+            this._finished = true;
+        }
+        for (var i = 0; i < this.digestLength / 8; i++) {
+            binary_1.writeUint32BE(this._stateHi[i], out, i * 8);
+            binary_1.writeUint32BE(this._stateLo[i], out, i * 8 + 4);
+        }
+        return this;
+    };
+    /**
+     * Returns the final hash digest.
+     */
+    SHA512.prototype.digest = function () {
+        var out = new Uint8Array(this.digestLength);
+        this.finish(out);
+        return out;
+    };
+    /**
+     * Function useful for HMAC/PBKDF2 optimization. Returns hash state to be
+     * used with restoreState(). Only chain value is saved, not buffers or
+     * other state variables.
+     */
+    SHA512.prototype.saveState = function () {
+        if (this._finished) {
+            throw new Error("SHA256: cannot save finished state");
+        }
+        return {
+            stateHi: new Int32Array(this._stateHi),
+            stateLo: new Int32Array(this._stateLo),
+            buffer: this._bufferLength > 0 ? new Uint8Array(this._buffer) : undefined,
+            bufferLength: this._bufferLength,
+            bytesHashed: this._bytesHashed
+        };
+    };
+    /**
+     * Function useful for HMAC/PBKDF2 optimization. Restores state saved by
+     * saveState() and sets bytesHashed to the given value.
+     */
+    SHA512.prototype.restoreState = function (savedState) {
+        this._stateHi.set(savedState.stateHi);
+        this._stateLo.set(savedState.stateLo);
+        this._bufferLength = savedState.bufferLength;
+        if (savedState.buffer) {
+            this._buffer.set(savedState.buffer);
+        }
+        this._bytesHashed = savedState.bytesHashed;
+        this._finished = false;
+        return this;
+    };
+    /**
+     * Cleans state returned by saveState().
+     */
+    SHA512.prototype.cleanSavedState = function (savedState) {
+        wipe_1.wipe(savedState.stateHi);
+        wipe_1.wipe(savedState.stateLo);
+        if (savedState.buffer) {
+            wipe_1.wipe(savedState.buffer);
+        }
+        savedState.bufferLength = 0;
+        savedState.bytesHashed = 0;
+    };
+    return SHA512;
+}());
+exports.SHA512 = SHA512;
+// Constants
+var K = new Int32Array([
+    0x428a2f98, 0xd728ae22, 0x71374491, 0x23ef65cd,
+    0xb5c0fbcf, 0xec4d3b2f, 0xe9b5dba5, 0x8189dbbc,
+    0x3956c25b, 0xf348b538, 0x59f111f1, 0xb605d019,
+    0x923f82a4, 0xaf194f9b, 0xab1c5ed5, 0xda6d8118,
+    0xd807aa98, 0xa3030242, 0x12835b01, 0x45706fbe,
+    0x243185be, 0x4ee4b28c, 0x550c7dc3, 0xd5ffb4e2,
+    0x72be5d74, 0xf27b896f, 0x80deb1fe, 0x3b1696b1,
+    0x9bdc06a7, 0x25c71235, 0xc19bf174, 0xcf692694,
+    0xe49b69c1, 0x9ef14ad2, 0xefbe4786, 0x384f25e3,
+    0x0fc19dc6, 0x8b8cd5b5, 0x240ca1cc, 0x77ac9c65,
+    0x2de92c6f, 0x592b0275, 0x4a7484aa, 0x6ea6e483,
+    0x5cb0a9dc, 0xbd41fbd4, 0x76f988da, 0x831153b5,
+    0x983e5152, 0xee66dfab, 0xa831c66d, 0x2db43210,
+    0xb00327c8, 0x98fb213f, 0xbf597fc7, 0xbeef0ee4,
+    0xc6e00bf3, 0x3da88fc2, 0xd5a79147, 0x930aa725,
+    0x06ca6351, 0xe003826f, 0x14292967, 0x0a0e6e70,
+    0x27b70a85, 0x46d22ffc, 0x2e1b2138, 0x5c26c926,
+    0x4d2c6dfc, 0x5ac42aed, 0x53380d13, 0x9d95b3df,
+    0x650a7354, 0x8baf63de, 0x766a0abb, 0x3c77b2a8,
+    0x81c2c92e, 0x47edaee6, 0x92722c85, 0x1482353b,
+    0xa2bfe8a1, 0x4cf10364, 0xa81a664b, 0xbc423001,
+    0xc24b8b70, 0xd0f89791, 0xc76c51a3, 0x0654be30,
+    0xd192e819, 0xd6ef5218, 0xd6990624, 0x5565a910,
+    0xf40e3585, 0x5771202a, 0x106aa070, 0x32bbd1b8,
+    0x19a4c116, 0xb8d2d0c8, 0x1e376c08, 0x5141ab53,
+    0x2748774c, 0xdf8eeb99, 0x34b0bcb5, 0xe19b48a8,
+    0x391c0cb3, 0xc5c95a63, 0x4ed8aa4a, 0xe3418acb,
+    0x5b9cca4f, 0x7763e373, 0x682e6ff3, 0xd6b2b8a3,
+    0x748f82ee, 0x5defb2fc, 0x78a5636f, 0x43172f60,
+    0x84c87814, 0xa1f0ab72, 0x8cc70208, 0x1a6439ec,
+    0x90befffa, 0x23631e28, 0xa4506ceb, 0xde82bde9,
+    0xbef9a3f7, 0xb2c67915, 0xc67178f2, 0xe372532b,
+    0xca273ece, 0xea26619c, 0xd186b8c7, 0x21c0c207,
+    0xeada7dd6, 0xcde0eb1e, 0xf57d4f7f, 0xee6ed178,
+    0x06f067aa, 0x72176fba, 0x0a637dc5, 0xa2c898a6,
+    0x113f9804, 0xbef90dae, 0x1b710b35, 0x131c471b,
+    0x28db77f5, 0x23047d84, 0x32caab7b, 0x40c72493,
+    0x3c9ebe0a, 0x15c9bebc, 0x431d67c4, 0x9c100d4c,
+    0x4cc5d4be, 0xcb3e42b6, 0x597f299c, 0xfc657e2a,
+    0x5fcb6fab, 0x3ad6faec, 0x6c44198c, 0x4a475817
+]);
+function hashBlocks(wh, wl, hh, hl, m, pos, len) {
+    var ah0 = hh[0], ah1 = hh[1], ah2 = hh[2], ah3 = hh[3], ah4 = hh[4], ah5 = hh[5], ah6 = hh[6], ah7 = hh[7], al0 = hl[0], al1 = hl[1], al2 = hl[2], al3 = hl[3], al4 = hl[4], al5 = hl[5], al6 = hl[6], al7 = hl[7];
+    var h, l;
+    var th, tl;
+    var a, b, c, d;
+    while (len >= 128) {
+        for (var i = 0; i < 16; i++) {
+            var j = 8 * i + pos;
+            wh[i] = binary_1.readUint32BE(m, j);
+            wl[i] = binary_1.readUint32BE(m, j + 4);
+        }
+        for (var i = 0; i < 80; i++) {
+            var bh0 = ah0;
+            var bh1 = ah1;
+            var bh2 = ah2;
+            var bh3 = ah3;
+            var bh4 = ah4;
+            var bh5 = ah5;
+            var bh6 = ah6;
+            var bh7 = ah7;
+            var bl0 = al0;
+            var bl1 = al1;
+            var bl2 = al2;
+            var bl3 = al3;
+            var bl4 = al4;
+            var bl5 = al5;
+            var bl6 = al6;
+            var bl7 = al7;
+            // add
+            h = ah7;
+            l = al7;
+            a = l & 0xffff;
+            b = l >>> 16;
+            c = h & 0xffff;
+            d = h >>> 16;
+            // Sigma1
+            h = ((ah4 >>> 14) | (al4 << (32 - 14))) ^ ((ah4 >>> 18) |
+                (al4 << (32 - 18))) ^ ((al4 >>> (41 - 32)) | (ah4 << (32 - (41 - 32))));
+            l = ((al4 >>> 14) | (ah4 << (32 - 14))) ^ ((al4 >>> 18) |
+                (ah4 << (32 - 18))) ^ ((ah4 >>> (41 - 32)) | (al4 << (32 - (41 - 32))));
+            a += l & 0xffff;
+            b += l >>> 16;
+            c += h & 0xffff;
+            d += h >>> 16;
+            // Ch
+            h = (ah4 & ah5) ^ (~ah4 & ah6);
+            l = (al4 & al5) ^ (~al4 & al6);
+            a += l & 0xffff;
+            b += l >>> 16;
+            c += h & 0xffff;
+            d += h >>> 16;
+            // K
+            h = K[i * 2];
+            l = K[i * 2 + 1];
+            a += l & 0xffff;
+            b += l >>> 16;
+            c += h & 0xffff;
+            d += h >>> 16;
+            // w
+            h = wh[i % 16];
+            l = wl[i % 16];
+            a += l & 0xffff;
+            b += l >>> 16;
+            c += h & 0xffff;
+            d += h >>> 16;
+            b += a >>> 16;
+            c += b >>> 16;
+            d += c >>> 16;
+            th = c & 0xffff | d << 16;
+            tl = a & 0xffff | b << 16;
+            // add
+            h = th;
+            l = tl;
+            a = l & 0xffff;
+            b = l >>> 16;
+            c = h & 0xffff;
+            d = h >>> 16;
+            // Sigma0
+            h = ((ah0 >>> 28) | (al0 << (32 - 28))) ^ ((al0 >>> (34 - 32)) |
+                (ah0 << (32 - (34 - 32)))) ^ ((al0 >>> (39 - 32)) | (ah0 << (32 - (39 - 32))));
+            l = ((al0 >>> 28) | (ah0 << (32 - 28))) ^ ((ah0 >>> (34 - 32)) |
+                (al0 << (32 - (34 - 32)))) ^ ((ah0 >>> (39 - 32)) | (al0 << (32 - (39 - 32))));
+            a += l & 0xffff;
+            b += l >>> 16;
+            c += h & 0xffff;
+            d += h >>> 16;
+            // Maj
+            h = (ah0 & ah1) ^ (ah0 & ah2) ^ (ah1 & ah2);
+            l = (al0 & al1) ^ (al0 & al2) ^ (al1 & al2);
+            a += l & 0xffff;
+            b += l >>> 16;
+            c += h & 0xffff;
+            d += h >>> 16;
+            b += a >>> 16;
+            c += b >>> 16;
+            d += c >>> 16;
+            bh7 = (c & 0xffff) | (d << 16);
+            bl7 = (a & 0xffff) | (b << 16);
+            // add
+            h = bh3;
+            l = bl3;
+            a = l & 0xffff;
+            b = l >>> 16;
+            c = h & 0xffff;
+            d = h >>> 16;
+            h = th;
+            l = tl;
+            a += l & 0xffff;
+            b += l >>> 16;
+            c += h & 0xffff;
+            d += h >>> 16;
+            b += a >>> 16;
+            c += b >>> 16;
+            d += c >>> 16;
+            bh3 = (c & 0xffff) | (d << 16);
+            bl3 = (a & 0xffff) | (b << 16);
+            ah1 = bh0;
+            ah2 = bh1;
+            ah3 = bh2;
+            ah4 = bh3;
+            ah5 = bh4;
+            ah6 = bh5;
+            ah7 = bh6;
+            ah0 = bh7;
+            al1 = bl0;
+            al2 = bl1;
+            al3 = bl2;
+            al4 = bl3;
+            al5 = bl4;
+            al6 = bl5;
+            al7 = bl6;
+            al0 = bl7;
+            if (i % 16 === 15) {
+                for (var j = 0; j < 16; j++) {
+                    // add
+                    h = wh[j];
+                    l = wl[j];
+                    a = l & 0xffff;
+                    b = l >>> 16;
+                    c = h & 0xffff;
+                    d = h >>> 16;
+                    h = wh[(j + 9) % 16];
+                    l = wl[(j + 9) % 16];
+                    a += l & 0xffff;
+                    b += l >>> 16;
+                    c += h & 0xffff;
+                    d += h >>> 16;
+                    // sigma0
+                    th = wh[(j + 1) % 16];
+                    tl = wl[(j + 1) % 16];
+                    h = ((th >>> 1) | (tl << (32 - 1))) ^ ((th >>> 8) |
+                        (tl << (32 - 8))) ^ (th >>> 7);
+                    l = ((tl >>> 1) | (th << (32 - 1))) ^ ((tl >>> 8) |
+                        (th << (32 - 8))) ^ ((tl >>> 7) | (th << (32 - 7)));
+                    a += l & 0xffff;
+                    b += l >>> 16;
+                    c += h & 0xffff;
+                    d += h >>> 16;
+                    // sigma1
+                    th = wh[(j + 14) % 16];
+                    tl = wl[(j + 14) % 16];
+                    h = ((th >>> 19) | (tl << (32 - 19))) ^ ((tl >>> (61 - 32)) |
+                        (th << (32 - (61 - 32)))) ^ (th >>> 6);
+                    l = ((tl >>> 19) | (th << (32 - 19))) ^ ((th >>> (61 - 32)) |
+                        (tl << (32 - (61 - 32)))) ^ ((tl >>> 6) | (th << (32 - 6)));
+                    a += l & 0xffff;
+                    b += l >>> 16;
+                    c += h & 0xffff;
+                    d += h >>> 16;
+                    b += a >>> 16;
+                    c += b >>> 16;
+                    d += c >>> 16;
+                    wh[j] = (c & 0xffff) | (d << 16);
+                    wl[j] = (a & 0xffff) | (b << 16);
+                }
+            }
+        }
+        // add
+        h = ah0;
+        l = al0;
+        a = l & 0xffff;
+        b = l >>> 16;
+        c = h & 0xffff;
+        d = h >>> 16;
+        h = hh[0];
+        l = hl[0];
+        a += l & 0xffff;
+        b += l >>> 16;
+        c += h & 0xffff;
+        d += h >>> 16;
+        b += a >>> 16;
+        c += b >>> 16;
+        d += c >>> 16;
+        hh[0] = ah0 = (c & 0xffff) | (d << 16);
+        hl[0] = al0 = (a & 0xffff) | (b << 16);
+        h = ah1;
+        l = al1;
+        a = l & 0xffff;
+        b = l >>> 16;
+        c = h & 0xffff;
+        d = h >>> 16;
+        h = hh[1];
+        l = hl[1];
+        a += l & 0xffff;
+        b += l >>> 16;
+        c += h & 0xffff;
+        d += h >>> 16;
+        b += a >>> 16;
+        c += b >>> 16;
+        d += c >>> 16;
+        hh[1] = ah1 = (c & 0xffff) | (d << 16);
+        hl[1] = al1 = (a & 0xffff) | (b << 16);
+        h = ah2;
+        l = al2;
+        a = l & 0xffff;
+        b = l >>> 16;
+        c = h & 0xffff;
+        d = h >>> 16;
+        h = hh[2];
+        l = hl[2];
+        a += l & 0xffff;
+        b += l >>> 16;
+        c += h & 0xffff;
+        d += h >>> 16;
+        b += a >>> 16;
+        c += b >>> 16;
+        d += c >>> 16;
+        hh[2] = ah2 = (c & 0xffff) | (d << 16);
+        hl[2] = al2 = (a & 0xffff) | (b << 16);
+        h = ah3;
+        l = al3;
+        a = l & 0xffff;
+        b = l >>> 16;
+        c = h & 0xffff;
+        d = h >>> 16;
+        h = hh[3];
+        l = hl[3];
+        a += l & 0xffff;
+        b += l >>> 16;
+        c += h & 0xffff;
+        d += h >>> 16;
+        b += a >>> 16;
+        c += b >>> 16;
+        d += c >>> 16;
+        hh[3] = ah3 = (c & 0xffff) | (d << 16);
+        hl[3] = al3 = (a & 0xffff) | (b << 16);
+        h = ah4;
+        l = al4;
+        a = l & 0xffff;
+        b = l >>> 16;
+        c = h & 0xffff;
+        d = h >>> 16;
+        h = hh[4];
+        l = hl[4];
+        a += l & 0xffff;
+        b += l >>> 16;
+        c += h & 0xffff;
+        d += h >>> 16;
+        b += a >>> 16;
+        c += b >>> 16;
+        d += c >>> 16;
+        hh[4] = ah4 = (c & 0xffff) | (d << 16);
+        hl[4] = al4 = (a & 0xffff) | (b << 16);
+        h = ah5;
+        l = al5;
+        a = l & 0xffff;
+        b = l >>> 16;
+        c = h & 0xffff;
+        d = h >>> 16;
+        h = hh[5];
+        l = hl[5];
+        a += l & 0xffff;
+        b += l >>> 16;
+        c += h & 0xffff;
+        d += h >>> 16;
+        b += a >>> 16;
+        c += b >>> 16;
+        d += c >>> 16;
+        hh[5] = ah5 = (c & 0xffff) | (d << 16);
+        hl[5] = al5 = (a & 0xffff) | (b << 16);
+        h = ah6;
+        l = al6;
+        a = l & 0xffff;
+        b = l >>> 16;
+        c = h & 0xffff;
+        d = h >>> 16;
+        h = hh[6];
+        l = hl[6];
+        a += l & 0xffff;
+        b += l >>> 16;
+        c += h & 0xffff;
+        d += h >>> 16;
+        b += a >>> 16;
+        c += b >>> 16;
+        d += c >>> 16;
+        hh[6] = ah6 = (c & 0xffff) | (d << 16);
+        hl[6] = al6 = (a & 0xffff) | (b << 16);
+        h = ah7;
+        l = al7;
+        a = l & 0xffff;
+        b = l >>> 16;
+        c = h & 0xffff;
+        d = h >>> 16;
+        h = hh[7];
+        l = hl[7];
+        a += l & 0xffff;
+        b += l >>> 16;
+        c += h & 0xffff;
+        d += h >>> 16;
+        b += a >>> 16;
+        c += b >>> 16;
+        d += c >>> 16;
+        hh[7] = ah7 = (c & 0xffff) | (d << 16);
+        hl[7] = al7 = (a & 0xffff) | (b << 16);
+        pos += 128;
+        len -= 128;
+    }
+    return pos;
+}
+function hash(data) {
+    var h = new SHA512();
+    h.update(data);
+    var digest = h.digest();
+    h.clean();
+    return digest;
+}
+exports.hash = hash;
+
+},{"@stablelib/binary":33,"@stablelib/wipe":40}],38:[function(require,module,exports){
+"use strict";
+// Copyright (C) 2017 Dmitry Chestnykh
+// MIT License. See LICENSE file for details.
+var __extends = (this && this.__extends) || (function () {
+    var extendStatics = function (d, b) {
+        extendStatics = Object.setPrototypeOf ||
+            ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
+            function (d, b) { for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p]; };
+        return extendStatics(d, b);
+    };
+    return function (d, b) {
+        extendStatics(d, b);
+        function __() { this.constructor = d; }
+        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+/**
+ * Package sha512_256 implements SHA-2-512/256 cryptographic hash function.
+ */
+var sha512_1 = require("@stablelib/sha512");
+exports.DIGEST_LENGTH = 32;
+exports.BLOCK_SIZE = 128;
+/**
+ * SHA2-512/256 cryptographic hash algorithm.
+ *
+ * SHA-512/256 is the same algorithm as SHA-512, but with
+ * different initialization vectors and digest length.
+ */
+// tslint:disable-next-line
+var SHA512_256 = /** @class */ (function (_super) {
+    __extends(SHA512_256, _super);
+    function SHA512_256() {
+        var _this = _super !== null && _super.apply(this, arguments) || this;
+        _this.digestLength = exports.DIGEST_LENGTH;
+        return _this;
+    }
+    SHA512_256.prototype._initState = function () {
+        this._stateHi[0] = 0x22312194;
+        this._stateHi[1] = 0x9f555fa3;
+        this._stateHi[2] = 0x2393b86b;
+        this._stateHi[3] = 0x96387719;
+        this._stateHi[4] = 0x96283ee2;
+        this._stateHi[5] = 0xbe5e1e25;
+        this._stateHi[6] = 0x2b0199fc;
+        this._stateHi[7] = 0x0eb72ddc;
+        this._stateLo[0] = 0xfc2bf72c;
+        this._stateLo[1] = 0xc84c64c2;
+        this._stateLo[2] = 0x6f53b151;
+        this._stateLo[3] = 0x5940eabd;
+        this._stateLo[4] = 0xa88effe3;
+        this._stateLo[5] = 0x53863992;
+        this._stateLo[6] = 0x2c85b8aa;
+        this._stateLo[7] = 0x81c52ca2;
+    };
+    return SHA512_256;
+}(sha512_1.SHA512));
+exports.SHA512_256 = SHA512_256;
+function hash(data) {
+    var h = new SHA512_256();
+    h.update(data);
+    var digest = h.digest();
+    h.clean();
+    return digest;
+}
+exports.hash = hash;
+
+},{"@stablelib/sha512":37}],39:[function(require,module,exports){
+"use strict";
+// Copyright (C) 2016 Dmitry Chestnykh
+// MIT License. See LICENSE file for details.
+Object.defineProperty(exports, "__esModule", { value: true });
+/**
+ * Package utf8 implements UTF-8 encoding and decoding.
+ */
+var INVALID_UTF16 = "utf8: invalid string";
+var INVALID_UTF8 = "utf8: invalid source encoding";
+/**
+ * Encodes the given string into UTF-8 byte array.
+ * Throws if the source string has invalid UTF-16 encoding.
+ */
+function encode(s) {
+    // Calculate result length and allocate output array.
+    // encodedLength() also validates string and throws errors,
+    // so we don't need repeat validation here.
+    var arr = new Uint8Array(encodedLength(s));
+    var pos = 0;
+    for (var i = 0; i < s.length; i++) {
+        var c = s.charCodeAt(i);
+        if (c < 0x80) {
+            arr[pos++] = c;
+        }
+        else if (c < 0x800) {
+            arr[pos++] = 0xc0 | c >> 6;
+            arr[pos++] = 0x80 | c & 0x3f;
+        }
+        else if (c < 0xd800) {
+            arr[pos++] = 0xe0 | c >> 12;
+            arr[pos++] = 0x80 | (c >> 6) & 0x3f;
+            arr[pos++] = 0x80 | c & 0x3f;
+        }
+        else {
+            i++; // get one more character
+            c = (c & 0x3ff) << 10;
+            c |= s.charCodeAt(i) & 0x3ff;
+            c += 0x10000;
+            arr[pos++] = 0xf0 | c >> 18;
+            arr[pos++] = 0x80 | (c >> 12) & 0x3f;
+            arr[pos++] = 0x80 | (c >> 6) & 0x3f;
+            arr[pos++] = 0x80 | c & 0x3f;
+        }
+    }
+    return arr;
+}
+exports.encode = encode;
+/**
+ * Returns the number of bytes required to encode the given string into UTF-8.
+ * Throws if the source string has invalid UTF-16 encoding.
+ */
+function encodedLength(s) {
+    var result = 0;
+    for (var i = 0; i < s.length; i++) {
+        var c = s.charCodeAt(i);
+        if (c < 0x80) {
+            result += 1;
+        }
+        else if (c < 0x800) {
+            result += 2;
+        }
+        else if (c < 0xd800) {
+            result += 3;
+        }
+        else if (c <= 0xdfff) {
+            if (i >= s.length - 1) {
+                throw new Error(INVALID_UTF16);
+            }
+            i++; // "eat" next character
+            result += 4;
+        }
+        else {
+            throw new Error(INVALID_UTF16);
+        }
+    }
+    return result;
+}
+exports.encodedLength = encodedLength;
+/**
+ * Decodes the given byte array from UTF-8 into a string.
+ * Throws if encoding is invalid.
+ */
+function decode(arr) {
+    var chars = [];
+    for (var i = 0; i < arr.length; i++) {
+        var b = arr[i];
+        if (b & 0x80) {
+            var min = void 0;
+            if (b < 0xe0) {
+                // Need 1 more byte.
+                if (i >= arr.length) {
+                    throw new Error(INVALID_UTF8);
+                }
+                var n1 = arr[++i];
+                if ((n1 & 0xc0) !== 0x80) {
+                    throw new Error(INVALID_UTF8);
+                }
+                b = (b & 0x1f) << 6 | (n1 & 0x3f);
+                min = 0x80;
+            }
+            else if (b < 0xf0) {
+                // Need 2 more bytes.
+                if (i >= arr.length - 1) {
+                    throw new Error(INVALID_UTF8);
+                }
+                var n1 = arr[++i];
+                var n2 = arr[++i];
+                if ((n1 & 0xc0) !== 0x80 || (n2 & 0xc0) !== 0x80) {
+                    throw new Error(INVALID_UTF8);
+                }
+                b = (b & 0x0f) << 12 | (n1 & 0x3f) << 6 | (n2 & 0x3f);
+                min = 0x800;
+            }
+            else if (b < 0xf8) {
+                // Need 3 more bytes.
+                if (i >= arr.length - 2) {
+                    throw new Error(INVALID_UTF8);
+                }
+                var n1 = arr[++i];
+                var n2 = arr[++i];
+                var n3 = arr[++i];
+                if ((n1 & 0xc0) !== 0x80 || (n2 & 0xc0) !== 0x80 || (n3 & 0xc0) !== 0x80) {
+                    throw new Error(INVALID_UTF8);
+                }
+                b = (b & 0x0f) << 18 | (n1 & 0x3f) << 12 | (n2 & 0x3f) << 6 | (n3 & 0x3f);
+                min = 0x10000;
+            }
+            else {
+                throw new Error(INVALID_UTF8);
+            }
+            if (b < min || (b >= 0xd800 && b <= 0xdfff)) {
+                throw new Error(INVALID_UTF8);
+            }
+            if (b >= 0x10000) {
+                // Surrogate pair.
+                if (b > 0x10ffff) {
+                    throw new Error(INVALID_UTF8);
+                }
+                b -= 0x10000;
+                chars.push(String.fromCharCode(0xd800 | (b >> 10)));
+                b = 0xdc00 | (b & 0x3ff);
+            }
+        }
+        chars.push(String.fromCharCode(b));
+    }
+    return chars.join("");
+}
+exports.decode = decode;
+
+},{}],40:[function(require,module,exports){
+"use strict";
+// Copyright (C) 2016 Dmitry Chestnykh
+// MIT License. See LICENSE file for details.
+Object.defineProperty(exports, "__esModule", { value: true });
+/**
+ * Sets all values in the given array to zero and returns it.
+ *
+ * The fact that it sets bytes to zero can be relied on.
+ *
+ * There is no guarantee that this function makes data disappear from memory,
+ * as runtime implementation can, for example, have copying garbage collector
+ * that will make copies of sensitive data before we wipe it. Or that an
+ * operating system will write our data to swap or sleep image. Another thing
+ * is that an optimizing compiler can remove calls to this function or make it
+ * no-op. There's nothing we can do with it, so we just do our best and hope
+ * that everything will be okay and good will triumph over evil.
+ */
+function wipe(array) {
+    // Right now it's similar to array.fill(0). If it turns
+    // out that runtimes optimize this call away, maybe
+    // we can try something else.
+    for (var i = 0; i < array.length; i++) {
+        array[i] = 0;
+    }
+    return array;
+}
+exports.wipe = wipe;
+
+},{}],41:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -23879,7 +25790,7 @@ function functionBindPolyfill(context) {
   };
 }
 
-},{}],34:[function(require,module,exports){
+},{}],42:[function(require,module,exports){
 (function (process){(function (){
 /* eslint-env browser */
 
@@ -24152,7 +26063,7 @@ formatters.j = function (v) {
 };
 
 }).call(this)}).call(this,require('_process'))
-},{"./common":35,"_process":37}],35:[function(require,module,exports){
+},{"./common":43,"_process":45}],43:[function(require,module,exports){
 
 /**
  * This is the common logic for both the Node.js and web browser
@@ -24428,7 +26339,7 @@ function setup(env) {
 
 module.exports = setup;
 
-},{"ms":36}],36:[function(require,module,exports){
+},{"ms":44}],44:[function(require,module,exports){
 /**
  * Helpers.
  */
@@ -24592,7 +26503,7 @@ function plural(ms, msAbs, n, name) {
   return Math.round(ms / n) + ' ' + name + (isPlural ? 's' : '');
 }
 
-},{}],37:[function(require,module,exports){
+},{}],45:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -24778,7 +26689,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],38:[function(require,module,exports){
+},{}],46:[function(require,module,exports){
 var grammar = module.exports = {
   v: [{
     name: 'version',
@@ -25274,7 +27185,7 @@ Object.keys(grammar).forEach(function (key) {
   });
 });
 
-},{}],39:[function(require,module,exports){
+},{}],47:[function(require,module,exports){
 var parser = require('./parser');
 var writer = require('./writer');
 
@@ -25287,7 +27198,7 @@ exports.parseRemoteCandidates = parser.parseRemoteCandidates;
 exports.parseImageAttributes = parser.parseImageAttributes;
 exports.parseSimulcastStreamList = parser.parseSimulcastStreamList;
 
-},{"./parser":40,"./writer":41}],40:[function(require,module,exports){
+},{"./parser":48,"./writer":49}],48:[function(require,module,exports){
 var toIntIfInt = function (v) {
   return String(Number(v)) === v ? Number(v) : v;
 };
@@ -25413,7 +27324,7 @@ exports.parseSimulcastStreamList = function (str) {
   });
 };
 
-},{"./grammar":38}],41:[function(require,module,exports){
+},{"./grammar":46}],49:[function(require,module,exports){
 var grammar = require('./grammar');
 
 // customized util.format - discards excess arguments and can void middle ones
@@ -25529,12 +27440,12 @@ module.exports = function (session, opts) {
   return sdp.join('\r\n') + '\r\n';
 };
 
-},{"./grammar":38}],42:[function(require,module,exports){
+},{"./grammar":46}],50:[function(require,module,exports){
 module.exports={
   "name": "@mitel-internal/jssip-mitel",
   "title": "JsSIP",
   "description": "the Javascript SIP library with patches for Mitel use",
-  "version": "3.10.0-beta.4",
+  "version": "3.10.0-beta.5",
   "homepage": "https://jssip.net",
   "contributors": [
     "José Luis Millán <jmillan@aliax.net> (https://github.com/jmillan)",
@@ -25559,8 +27470,12 @@ module.exports={
     "url": "https://github.com/versatica/JsSIP/issues"
   },
   "dependencies": {
-    "@types/events": "^3.0.0",
+    "@stablelib/hex": "^1.0.1",
+    "@stablelib/sha256": "^1.0.1",
+    "@stablelib/sha512_256": "^1.0.1",
+    "@stablelib/utf8": "^1.0.1",
     "@types/debug": "^4.1.7",
+    "@types/events": "^3.0.0",
     "debug": "^4.3.1",
     "events": "^3.3.0",
     "sdp-transform": "^2.14.1"
