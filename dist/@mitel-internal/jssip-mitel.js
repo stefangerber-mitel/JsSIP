@@ -1,5 +1,5 @@
 /*
- * JsSIP v3.10.0-beta.6
+ * JsSIP v3.10.0-beta.7
  * the Javascript SIP library with patches for Mitel use
  * Copyright: 2012-2023 
  * Homepage: https://jssip.net
@@ -16214,7 +16214,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
             }
             break;
           case JsSIP_C.UPDATE:
-            if (this._status === C.STATUS_CONFIRMED || this._status === C.STATUS_1XX_RECEIVED || this._status === C.STATUS_WAITING_FOR_ANSWER) {
+            if (this._status === C.STATUS_1XX_RECEIVED || this._status === C.STATUS_WAITING_FOR_ANSWER || this._status === C.STATUS_ANSWERED || this._status === C.STATUS_WAITING_FOR_ACK || this._status === C.STATUS_CONFIRMED) {
               this._receiveUpdate(request);
             } else {
               request.reply(403, 'Wrong Status');
@@ -25537,7 +25537,7 @@ module.exports={
   "name": "@mitel-internal/jssip-mitel",
   "title": "JsSIP",
   "description": "the Javascript SIP library with patches for Mitel use",
-  "version": "3.10.0-beta.6",
+  "version": "3.10.0-beta.7",
   "homepage": "https://jssip.net",
   "contributors": [
     "José Luis Millán <jmillan@aliax.net> (https://github.com/jmillan)",
