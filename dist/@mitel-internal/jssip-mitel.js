@@ -1,5 +1,5 @@
 /*
- * JsSIP v3.10.0-beta.7
+ * JsSIP v3.10.0-beta.8
  * the Javascript SIP library with patches for Mitel use
  * Copyright: 2012-2023 
  * Homepage: https://jssip.net
@@ -16154,6 +16154,31 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
               };
               logger.debug('emit "sdp"');
               this.emit('sdp', e);
+              var sdp = sdp_transform.parse(e.sdp);
+              var hold = false;
+              var _iterator4 = _createForOfIteratorHelper(sdp.media),
+                _step4;
+              try {
+                for (_iterator4.s(); !(_step4 = _iterator4.n()).done;) {
+                  var m = _step4.value;
+                  if (holdMediaTypes.indexOf(m.type) === -1) {
+                    continue;
+                  }
+                  var direction = m.direction || sdp.direction || 'sendrecv';
+                  if (direction === 'sendonly' || direction === 'inactive') {
+                    hold = true;
+                  }
+                  // If at least one of the streams is active don't emit 'hold'.
+                  else {
+                    hold = false;
+                    break;
+                  }
+                }
+              } catch (err) {
+                _iterator4.e(err);
+              } finally {
+                _iterator4.f();
+              }
               var answer = new RTCSessionDescription({
                 type: 'answer',
                 sdp: e.sdp
@@ -16171,6 +16196,14 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
                 });
                 logger.warn('emit "peerconnection:setremotedescriptionfailed" [error:%o]', error);
                 _this10.emit('peerconnection:setremotedescriptionfailed', error);
+              }).then(function () {
+                if (_this10._remoteHold === true && hold === false) {
+                  _this10._remoteHold = false;
+                  _this10._onunhold('remote');
+                } else if (_this10._remoteHold === false && hold === true) {
+                  _this10._remoteHold = true;
+                  _this10._onhold('remote');
+                }
               });
             } else if (!this._is_confirmed) {
               this._confirmed('remote', request);
@@ -16777,11 +16810,11 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
       logger.debug('_processInDialogSdpOffer()');
       var sdp = request.parseSDP();
       var hold = false;
-      var _iterator4 = _createForOfIteratorHelper(sdp.media),
-        _step4;
+      var _iterator5 = _createForOfIteratorHelper(sdp.media),
+        _step5;
       try {
-        for (_iterator4.s(); !(_step4 = _iterator4.n()).done;) {
-          var m = _step4.value;
+        for (_iterator5.s(); !(_step5 = _iterator5.n()).done;) {
+          var m = _step5.value;
           if (holdMediaTypes.indexOf(m.type) === -1) {
             continue;
           }
@@ -16796,9 +16829,9 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
           }
         }
       } catch (err) {
-        _iterator4.e(err);
+        _iterator5.e(err);
       } finally {
-        _iterator4.f();
+        _iterator5.f();
       }
       var e = {
         originator: 'remote',
@@ -17545,11 +17578,11 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
       // Local hold.
       if (this._localHold && !this._remoteHold) {
         logger.debug('mangleOffer() | me on hold, mangling offer');
-        var _iterator5 = _createForOfIteratorHelper(sdp.media),
-          _step5;
+        var _iterator6 = _createForOfIteratorHelper(sdp.media),
+          _step6;
         try {
-          for (_iterator5.s(); !(_step5 = _iterator5.n()).done;) {
-            var m = _step5.value;
+          for (_iterator6.s(); !(_step6 = _iterator6.n()).done;) {
+            var m = _step6.value;
             if (holdMediaTypes.indexOf(m.type) === -1) {
               continue;
             }
@@ -17562,38 +17595,38 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
             }
           }
         } catch (err) {
-          _iterator5.e(err);
+          _iterator6.e(err);
         } finally {
-          _iterator5.f();
+          _iterator6.f();
         }
       }
       // Local and remote hold.
       else if (this._localHold && this._remoteHold) {
         logger.debug('mangleOffer() | both on hold, mangling offer');
-        var _iterator6 = _createForOfIteratorHelper(sdp.media),
-          _step6;
+        var _iterator7 = _createForOfIteratorHelper(sdp.media),
+          _step7;
         try {
-          for (_iterator6.s(); !(_step6 = _iterator6.n()).done;) {
-            var _m = _step6.value;
+          for (_iterator7.s(); !(_step7 = _iterator7.n()).done;) {
+            var _m = _step7.value;
             if (holdMediaTypes.indexOf(_m.type) === -1) {
               continue;
             }
             _m.direction = 'inactive';
           }
         } catch (err) {
-          _iterator6.e(err);
+          _iterator7.e(err);
         } finally {
-          _iterator6.f();
+          _iterator7.f();
         }
       }
       // Remote hold.
       else if (this._remoteHold) {
         logger.debug('mangleOffer() | remote on hold, mangling offer');
-        var _iterator7 = _createForOfIteratorHelper(sdp.media),
-          _step7;
+        var _iterator8 = _createForOfIteratorHelper(sdp.media),
+          _step8;
         try {
-          for (_iterator7.s(); !(_step7 = _iterator7.n()).done;) {
-            var _m2 = _step7.value;
+          for (_iterator8.s(); !(_step8 = _iterator8.n()).done;) {
+            var _m2 = _step8.value;
             if (holdMediaTypes.indexOf(_m2.type) === -1) {
               continue;
             }
@@ -17606,9 +17639,9 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
             }
           }
         } catch (err) {
-          _iterator7.e(err);
+          _iterator8.e(err);
         } finally {
-          _iterator7.f();
+          _iterator8.f();
         }
       }
       return sdp_transform.write(sdp);
@@ -17724,25 +17757,6 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
       var senders = this._connection.getSenders().filter(function (sender) {
         return sender.track && sender.track.kind === 'audio';
       });
-      var _iterator8 = _createForOfIteratorHelper(senders),
-        _step8;
-      try {
-        for (_iterator8.s(); !(_step8 = _iterator8.n()).done;) {
-          var sender = _step8.value;
-          sender.track.enabled = !mute;
-        }
-      } catch (err) {
-        _iterator8.e(err);
-      } finally {
-        _iterator8.f();
-      }
-    }
-  }, {
-    key: "_toggleMuteVideo",
-    value: function _toggleMuteVideo(mute) {
-      var senders = this._connection.getSenders().filter(function (sender) {
-        return sender.track && sender.track.kind === 'video';
-      });
       var _iterator9 = _createForOfIteratorHelper(senders),
         _step9;
       try {
@@ -17754,6 +17768,25 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
         _iterator9.e(err);
       } finally {
         _iterator9.f();
+      }
+    }
+  }, {
+    key: "_toggleMuteVideo",
+    value: function _toggleMuteVideo(mute) {
+      var senders = this._connection.getSenders().filter(function (sender) {
+        return sender.track && sender.track.kind === 'video';
+      });
+      var _iterator10 = _createForOfIteratorHelper(senders),
+        _step10;
+      try {
+        for (_iterator10.s(); !(_step10 = _iterator10.n()).done;) {
+          var sender = _step10.value;
+          sender.track.enabled = !mute;
+        }
+      } catch (err) {
+        _iterator10.e(err);
+      } finally {
+        _iterator10.f();
       }
     }
   }, {
@@ -25537,7 +25570,7 @@ module.exports={
   "name": "@mitel-internal/jssip-mitel",
   "title": "JsSIP",
   "description": "the Javascript SIP library with patches for Mitel use",
-  "version": "3.10.0-beta.7",
+  "version": "3.10.0-beta.8",
   "homepage": "https://jssip.net",
   "contributors": [
     "José Luis Millán <jmillan@aliax.net> (https://github.com/jmillan)",
