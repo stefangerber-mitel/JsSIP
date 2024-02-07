@@ -25,17 +25,12 @@ export declare enum Originator {
 }
 
 // options
-export interface MediaConstraints {
-  audio?: boolean;
-  video?: boolean;
-}
-
 export interface ExtraHeaders {
   extraHeaders?: string[];
 }
 
 export interface AnswerOptions extends ExtraHeaders {
-  mediaConstraints?: MediaConstraints;
+  mediaConstraints?: MediaStreamConstraints;
   mediaStream?: MediaStream;
   pcConfig?: RTCConfiguration;
   rtcConstraints?: object;
@@ -189,7 +184,7 @@ export interface LocalDescriptionEvent {
 }
 
 // listener
-export type AnyListener = (...args: any[]) => void;
+export type GenericErrorListener = (error: any) => void;
 export type PeerConnectionListener = (event: PeerConnectionEvent) => void;
 export type ConnectingListener = (event: ConnectingEvent) => void;
 export type SendingListener = (event: SendingEvent) => void;
@@ -238,11 +233,11 @@ export interface RTCSessionEventMap {
   'replaces': ReferListener;
   'sdp': SDPListener;
   'icecandidate': IceCandidateListener;
-  'getusermediafailed': AnyListener;
-  'peerconnection:createofferfailed': AnyListener;
-  'peerconnection:createanswerfailed': AnyListener;
-  'peerconnection:setlocaldescriptionfailed': AnyListener;
-  'peerconnection:setremotedescriptionfailed': AnyListener;
+  'getusermediafailed': GenericErrorListener;
+  'peerconnection:createofferfailed': GenericErrorListener;
+  'peerconnection:createanswerfailed': GenericErrorListener;
+  'peerconnection:setlocaldescriptionfailed': GenericErrorListener;
+  'peerconnection:setremotedescriptionfailed': GenericErrorListener;
   'localDescription': LocalDescriptionListener;
 }
 

@@ -1,7 +1,7 @@
 /*
- * JsSIP v3.10.0-beta.8
+ * JsSIP v3.10.1-beta.9
  * the Javascript SIP library with patches for Mitel use
- * Copyright: 2012-2023 
+ * Copyright: 2012-2024 
  * Homepage: https://jssip.net
  * License: MIT
  */
@@ -43,6 +43,7 @@ exports.settings = {
   // Registration parameters.
   register: true,
   register_expires: 600,
+  register_from_tag_trail: '',
   registrar_server: null,
   // Connection options.
   sockets: null,
@@ -212,6 +213,12 @@ var checks = {
           return value;
         }
       }
+    },
+    register_from_tag_trail: function register_from_tag_trail(_register_from_tag_trail) {
+      if (typeof _register_from_tag_trail === 'function') {
+        return _register_from_tag_trail;
+      }
+      return String(_register_from_tag_trail);
     },
     registrar_server: function registrar_server(_registrar_server) {
       if (!/^sip:/i.test(_registrar_server)) {
@@ -14020,7 +14027,7 @@ var Dialog = require('./Dialog');
 var logger = new Logger('Notifier');
 
 /**
- * Termination codes. 
+ * Termination codes.
  */
 var C = {
   // Termination codes.
@@ -14050,7 +14057,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
    * @param {NotifierOptions} options - Optional parameters.
    *   @param {Array<string>}  extraHeaders - Additional SIP headers.
    *   @param {string} allowEvents - Allow-Events header value.
-   *   @param {boolean} pending - Set initial dialog state as "pending". 
+   *   @param {boolean} pending - Set initial dialog state as "pending".
    */
   function Notifier(ua, subscribe, contentType, _ref) {
     var _this;
@@ -14116,7 +14123,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
 
   /**
    * Dialog callback.
-   * Called also for initial subscribe. 
+   * Called also for initial subscribe.
    * Supported RFC 6665 4.4.3: initial fetch subscribe (with expires: 0).
    */
   _createClass(Notifier, [{
@@ -14239,7 +14246,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
 
     /**
      *  Terminate. (Send the final NOTIFY request).
-     * 
+     *
      * @param {string} body - Notify message body.
      * @param {string} reason - Set Subscription-State reason parameter.
      * @param {number} retryAfter - Set Subscription-State retry-after parameter.
@@ -14259,7 +14266,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
     }
 
     /**
-     * Get dialog state. 
+     * Get dialog state.
      */
   }, {
     key: "state",
@@ -16556,6 +16563,9 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
           var iceGatheringStateListener;
           _this12._iceReady = false;
           var ready = function ready() {
+            if (finished) {
+              return;
+            }
             connection.removeEventListener('icecandidate', iceCandidateListener);
             connection.removeEventListener('icegatheringstatechange', iceGatheringStateListener);
             finished = true;
@@ -16579,12 +16589,12 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
                 candidate: candidate,
                 ready: ready
               });
-            } else if (!finished) {
+            } else {
               ready();
             }
           });
           connection.addEventListener('icegatheringstatechange', iceGatheringStateListener = function iceGatheringStateListener() {
-            if (connection.iceGatheringState === 'complete' && !finished) {
+            if (connection.iceGatheringState === 'complete') {
               ready();
             }
           });
@@ -18526,10 +18536,19 @@ module.exports = /*#__PURE__*/function () {
       var extraHeaders = this._extraHeaders.slice();
       extraHeaders.push("Contact: ".concat(this._contact, ";expires=").concat(this._expires).concat(this._extraContactParams));
       extraHeaders.push("Expires: ".concat(this._expires));
+      var fromTag = Utils.newTag();
+      if (this._ua.configuration.register_from_tag_trail) {
+        if (typeof this._ua.configuration.register_from_tag_trail === 'function') {
+          fromTag += this._ua.configuration.register_from_tag_trail();
+        } else {
+          fromTag += this._ua.configuration.register_from_tag_trail;
+        }
+      }
       var request = new SIPMessage.OutgoingRequest(JsSIP_C.REGISTER, this._registrar, this._ua, {
         'to_uri': this._to_uri,
         'call_id': this._call_id,
-        'cseq': this._cseq += 1
+        'cseq': this._cseq += 1,
+        'from_tag': fromTag
       }, extraHeaders);
       var request_sender = new RequestSender(this._ua, request, {
         onRequestTimeout: function onRequestTimeout() {
@@ -19812,12 +19831,12 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
    * @param {string} target
    * @param {string} eventName - Event header value. May end with optional ;id=xxx
    * @param {string} accept - Accept header value.
-   * 
+   *
    * @param {SubscriberOption} options - optional parameters.
    *   @param {number} expires - Expires header value. Default is 900.
    *   @param {string} contentType - Content-Type header value. Used for SUBSCRIBE with body
    *   @param {string} allowEvents - Allow-Events header value.
-   *   @param {RequestParams} params - Will have priority over ua.configuration. 
+   *   @param {RequestParams} params - Will have priority over ua.configuration.
    *      If set please define: to_uri, to_display_name, from_uri, from_display_name
    *   @param {Array<string>} extraHeaders - Additional SIP headers.
    */
@@ -19882,7 +19901,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
     // After send un-subscribe wait final notify limited time.
     _this._unsubscribe_timeout_timer = null;
 
-    // Custom session empty object for high level use.    
+    // Custom session empty object for high level use.
     _this.data = {};
     var parsed = Grammar.parse(eventName, 'Event');
     if (parsed === -1) {
@@ -20012,7 +20031,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
      * User API
      */
 
-    /** 
+    /**
      * Send the initial (non-fetch)  and subsequent subscribe.
      * @param {string} body - subscribe request body.
      */
@@ -20028,8 +20047,8 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
       }
     }
 
-    /** 
-     * terminate. 
+    /**
+     * terminate.
      * Send un-subscribe or fetch-subscribe (with Expires: 0).
      * @param {string} body - un-subscribe request body
      */
@@ -20119,7 +20138,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
         if (this._dialog === null) {
           var dialog = new Dialog(this, response, 'UAC');
           if (dialog.error) {
-            // OK response without Contact 
+            // OK response without Contact
             logger.warn(dialog.error);
             this._dialogTerminated(C.SUBSCRIBE_BAD_OK_RESPONSE);
             return;
@@ -20233,11 +20252,11 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
     value: function _scheduleSubscribe(expires) {
       var _this5 = this;
       /*
-        If the expires time is less than 140 seconds we do not support Chrome intensive timer throttling mode. 
+        If the expires time is less than 140 seconds we do not support Chrome intensive timer throttling mode.
         In this case, the re-subcribe is sent 5 seconds before the subscription expiration.
-         When Chrome is in intensive timer throttling mode, in the worst case, 
+         When Chrome is in intensive timer throttling mode, in the worst case,
       the timer will be 60 seconds late.
-        We give the server 10 seconds to make sure it will execute the command even if it is heavily loaded. 
+        We give the server 10 seconds to make sure it will execute the command even if it is heavily loaded.
         As a result, we order the time no later than 70 seconds before the subscription expiration.
         Resulting time calculated as half time interval + (half interval - 70) * random.
          E.g. expires is 140, re-subscribe will be ordered to send in 70 seconds.
@@ -21295,7 +21314,19 @@ module.exports = /*#__PURE__*/function () {
   }, {
     key: "_onData",
     value: function _onData(data) {
-      // CRLF Keep Alive response from server. Ignore it.
+      // CRLF Keep Alive request from server, reply.
+      if (data === '\r\n\r\n') {
+        logger.debug('received message with double-CRLF Keep Alive request');
+        try {
+          // Reply with single CRLF.
+          this.socket.send('\r\n');
+        } catch (error) {
+          logger.warn("error sending Keep Alive response: ".concat(error));
+        }
+        return;
+      }
+
+      // CRLF Keep Alive response from server, ignore it.
       if (data === '\r\n') {
         logger.debug('received message with CRLF Keep Alive response');
         return;
@@ -21577,7 +21608,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
       return message;
     }
 
-    /** 
+    /**
      * Create subscriber instance
      */
   }, {
@@ -21751,6 +21782,11 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
         case 'display_name':
           {
             this._configuration.display_name = value;
+            break;
+          }
+        case 'extra_headers':
+          {
+            this._configuration.extra_headers = value;
             break;
           }
         default:
@@ -22198,7 +22234,7 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
       };
 
       // Seal the configuration.
-      var writable_parameters = ['authorization_user', 'password', 'realm', 'ha1', 'authorization_jwt', 'display_name', 'register'];
+      var writable_parameters = ['authorization_user', 'password', 'realm', 'ha1', 'authorization_jwt', 'display_name', 'register', 'extra_headers'];
       for (var parameter in this._configuration) {
         if (Object.prototype.hasOwnProperty.call(this._configuration, parameter)) {
           if (writable_parameters.indexOf(parameter) !== -1) {
@@ -25570,7 +25606,7 @@ module.exports={
   "name": "@mitel-internal/jssip-mitel",
   "title": "JsSIP",
   "description": "the Javascript SIP library with patches for Mitel use",
-  "version": "3.10.0-beta.8",
+  "version": "3.10.1-beta.9",
   "homepage": "https://jssip.net",
   "contributors": [
     "José Luis Millán <jmillan@aliax.net> (https://github.com/jmillan)",
