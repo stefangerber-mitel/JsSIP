@@ -268,7 +268,7 @@ module.exports = {
 
     digest.authenticate({ method, ruri }, challenge, cnonce);
 
-    // caclulated manually using http://emn178.github.io/online-tools/sha256.html
+    // calculated manually using http://emn178.github.io/online-tools/sha256.html
     test.strictEqual(digest._response, 'dccff9158e4ae98e393289e185045a6ed99b4aaee610cbe0ed73ad64b1ce86fb');
 
     test.done();
@@ -300,7 +300,7 @@ module.exports = {
 
     digest.authenticate({ method, ruri }, challenge, cnonce);
 
-    // caclulated manually using http://emn178.github.io/online-tools/sha256.html
+    // calculated manually using http://emn178.github.io/online-tools/sha256.html
     test.strictEqual(digest._ha1, 'a4767e15743db0c523c7125d9a3e944c0d315b30fe5c22ba599c8041ce947ecf');
     test.strictEqual(digest._response, '69ab2b84fd74d13e7651ba2de802490ca3f9c1d940df150dfb0e57e7a3fc787f');
 
@@ -339,6 +339,39 @@ module.exports = {
     test.done();
   },
 
+  'digest authenticate qop = auth and algorithm = SHA-512-256-SESS' : function(test)
+  {
+    const method = 'REGISTER';
+    const ruri = 'sip:testrealm@host.com';
+    const cnonce = '0a4f113b';
+    const credentials =
+      {
+        username : 'testuser',
+        password : 'testpassword',
+        realm    : 'testrealm@host.com',
+        ha1      : null
+      };
+    const challenge =
+      {
+        algorithm : 'SHA-512-256-SESS',
+        realm     : 'testrealm@host.com',
+        nonce     : '5a071f75353f667787615249c62dcc7b15a4828f',
+        opaque    : null,
+        stale     : null,
+        qop       : 'auth'
+      };
+
+    const digest = new DigestAuthentication(credentials);
+
+    digest.authenticate({ method, ruri }, challenge, cnonce);
+
+    // calculated manually using https://emn178.github.io/online-tools/sha512_256.html
+    test.strictEqual(digest._ha1, 'b04a436d1b3fdf1cf7d079d5adab243ce697ed49cd3ef499b884880719eaf2f5');
+    test.strictEqual(digest._response, '896624eac5d5022eae449f98bc19d85cb9c0c74cb04ec940c2a098935c9e92f4');
+
+    test.done();
+  },
+
   'digest authenticate qop = auth-int, empty body and algorithm = SHA-256' : function(test)
   {
     const method = 'REGISTER';
@@ -365,7 +398,7 @@ module.exports = {
 
     digest.authenticate({ method, ruri }, challenge, cnonce);
 
-    // caclulated manually using http://emn178.github.io/online-tools/sha256.html
+    // calculated manually using http://emn178.github.io/online-tools/sha256.html
     test.strictEqual(digest._response, '0ace4c65bebcb70bb1afd97713d1aab441369881d94812514d7f05f07f72b442');
 
     test.done();
@@ -398,7 +431,7 @@ module.exports = {
 
     digest.authenticate({ method, ruri, body }, challenge, cnonce);
 
-    // caclulated manually using http://emn178.github.io/online-tools/sha256.html
+    // calculated manually using http://emn178.github.io/online-tools/sha256.html
     test.strictEqual(digest._response, '4ba607066f2ea1a8cd3f9402d35c7be94b7406ac6cf6068eee497d615c95737e');
 
     test.done();
@@ -430,7 +463,7 @@ module.exports = {
 
     digest.authenticate({ method, ruri }, challenge, cnonce);
 
-    // caclulated manually using http://emn178.github.io/online-tools/sha256.html
+    // calculated manually using http://emn178.github.io/online-tools/sha256.html
     test.strictEqual(digest._response, '4dd0a3006ac4caac16b4b92304ded30fac6e0e42eb6b8fca9a8e0aaead56176c');
 
     test.done();
@@ -463,7 +496,7 @@ module.exports = {
 
     digest.authenticate({ method, ruri, body }, challenge, cnonce);
 
-    // caclulated manually using http://emn178.github.io/online-tools/sha256.html
+    // calculated manually using http://emn178.github.io/online-tools/sha256.html
     test.strictEqual(digest._response, '10800ab7a3ab2d9376b1fa15a2c54418f7f20869963edff1cd21a7807f51c859');
 
     test.done();
