@@ -1,5 +1,5 @@
 /*
- * JsSIP v3.10.1-rfc8760.11
+ * JsSIP v3.10.1-rfc8760.12
  * the Javascript SIP library with patches for Mitel use
  * Copyright: 2012-2024 
  * Homepage: https://jssip.net
@@ -18,6 +18,8 @@ var Grammar = require('./Grammar');
 var URI = require('./URI');
 var Socket = require('./Socket');
 var Exceptions = require('./Exceptions');
+var _require = require('./Constants'),
+  DIGEST_ALGORITHMS = _require.DIGEST_ALGORITHMS;
 
 // Default settings.
 exports.settings = {
@@ -51,6 +53,16 @@ exports.settings = {
   connection_recovery_min_interval: JsSIP_C.CONNECTION_RECOVERY_MIN_INTERVAL,
   // Global extra headers, to be added to every request and response
   extra_headers: null,
+  // Supported algorithms in digest authentication. By default, all algorithms listed in
+  // Constants.DIGEST_ALGORITHMS are supported.
+  // This setting especially makes sense when providing a ha1 instead of a plain text password,
+  // to filter out received challenges with algorithms that do not match the algorithm that was
+  // used to create the ha1, in a scenario when e.g. a 401 response is received with multiple
+  // 'WWW-Authenticate' headers for the same realm, but with different algorithm attributes.
+  // So e.g. when providing a config with a ha1 hashed with MD5, only MD5 or MD5-SESS challenges
+  // can successfully be processed, therefore use [DIGEST_ALGORITHMS.MD5, DIGEST_ALGORITHMS.MD5_SESS]
+  // for this setting.
+  supported_digest_algorithms: null,
   /*
    * Host address.
    * Value to be set in Via sent_by and host part of Contact FQDN.
@@ -259,6 +271,28 @@ var checks = {
         return;
       }
       return _extraHeaders;
+    },
+    supported_digest_algorithms: function supported_digest_algorithms(_supported_digest_algorithms) {
+      var _supportedDigestAlgorithms = [];
+      if (Array.isArray(_supported_digest_algorithms) && _supported_digest_algorithms.length) {
+        var _iterator3 = _createForOfIteratorHelper(_supported_digest_algorithms),
+          _step3;
+        try {
+          for (_iterator3.s(); !(_step3 = _iterator3.n()).done;) {
+            var algorithm = _step3.value;
+            if (algorithm === DIGEST_ALGORITHMS.MD5 || algorithm === DIGEST_ALGORITHMS.MD5_SESS || algorithm === DIGEST_ALGORITHMS.SHA_256 || algorithm === DIGEST_ALGORITHMS.SHA_256_SESS || algorithm === DIGEST_ALGORITHMS.SHA_512_256 || algorithm === DIGEST_ALGORITHMS.SHA_512_256_SESS) {
+              _supportedDigestAlgorithms.push(algorithm);
+            }
+          }
+        } catch (err) {
+          _iterator3.e(err);
+        } finally {
+          _iterator3.f();
+        }
+      } else {
+        return;
+      }
+      return _supportedDigestAlgorithms;
     }
   }
 };
@@ -470,7 +504,15 @@ module.exports = {
   SESSION_EXPIRES: 90,
   MIN_SESSION_EXPIRES: 60,
   CONNECTION_RECOVERY_MAX_INTERVAL: 30,
-  CONNECTION_RECOVERY_MIN_INTERVAL: 2
+  CONNECTION_RECOVERY_MIN_INTERVAL: 2,
+  DIGEST_ALGORITHMS: {
+    MD5: 'MD5',
+    MD5_SESS: 'MD5-SESS',
+    SHA_256: 'SHA-256',
+    SHA_256_SESS: 'SHA-256-SESS',
+    SHA_512_256: 'SHA-512-256',
+    SHA_512_256_SESS: 'SHA-512-256-SESS'
+  }
 };
 },{"../package.json":50}],3:[function(require,module,exports){
 "use strict";
@@ -860,6 +902,7 @@ function _toPropertyKey(arg) { var key = _toPrimitive(arg, "string"); return _ty
 function _toPrimitive(input, hint) { if (_typeof(input) !== "object" || input === null) return input; var prim = input[Symbol.toPrimitive]; if (prim !== undefined) { var res = prim.call(input, hint || "default"); if (_typeof(res) !== "object") return res; throw new TypeError("@@toPrimitive must return a primitive value."); } return (hint === "string" ? String : Number)(input); }
 var Logger = require('./Logger');
 var Utils = require('./Utils');
+var JsSIP_C = require('./Constants');
 var logger = new Logger('DigestAuthentication');
 module.exports = /*#__PURE__*/function () {
   function DigestAuthentication(credentials) {
@@ -915,12 +958,13 @@ module.exports = /*#__PURE__*/function () {
       this._userhash = challenge.userhash;
       this._charset = challenge.charset;
       if (this._algorithm) {
-        if (!/^MD5$|^MD5-SESS$|^SHA-256$|^SHA-256-SESS$|^SHA-512-256$|^SHA-512-256-SESS$/.test(this._algorithm)) {
+        var digestAlgorithmsRegEx = new RegExp("^".concat(JsSIP_C.DIGEST_ALGORITHMS.MD5, "$|^").concat(JsSIP_C.DIGEST_ALGORITHMS.MD5_SESS, "$|^").concat(JsSIP_C.DIGEST_ALGORITHMS.SHA_256, "$|^").concat(JsSIP_C.DIGEST_ALGORITHMS.SHA_256_SESS, "$|^").concat(JsSIP_C.DIGEST_ALGORITHMS.SHA_512_256, "$|^").concat(JsSIP_C.DIGEST_ALGORITHMS.SHA_512_256_SESS, "$"));
+        if (!digestAlgorithmsRegEx.test(this._algorithm)) {
           logger.warn("authenticate() | challenge with unsupported Digest algorithm ".concat(this._algorithm, ", authentication aborted"));
           return false;
         }
       } else {
-        this._algorithm = 'MD5';
+        this._algorithm = JsSIP_C.DIGEST_ALGORITHMS.MD5;
       }
       if (!this._nonce) {
         logger.warn('authenticate() | challenge without Digest nonce, authentication aborted');
@@ -997,7 +1041,10 @@ module.exports = /*#__PURE__*/function () {
         }
       }
       // Otherwise reuse the stored ha1.
-      else {
+      else if (this._algorithm.endsWith('-SESS')) {
+        // HA1 = HASH(A1) = HASH(HASH(username:realm:password):nonce:cnonce).
+        this._ha1 = this._calcHash("".concat(this._credentials.ha1, ":").concat(this._nonce, ":").concat(this._cnonce));
+      } else {
         this._ha1 = this._credentials.ha1;
       }
       var a2;
@@ -1068,16 +1115,16 @@ module.exports = /*#__PURE__*/function () {
     value: function _calcHash(str) {
       var retVal;
       switch (this._algorithm) {
-        case 'MD5':
-        case 'MD5-SESS':
+        case JsSIP_C.DIGEST_ALGORITHMS.MD5:
+        case JsSIP_C.DIGEST_ALGORITHMS.MD5_SESS:
           retVal = Utils.calculateMD5(str);
           break;
-        case 'SHA-256':
-        case 'SHA-256-SESS':
+        case JsSIP_C.DIGEST_ALGORITHMS.SHA_256:
+        case JsSIP_C.DIGEST_ALGORITHMS.SHA_256_SESS:
           retVal = Utils.calculateSHA256(str);
           break;
-        case 'SHA-512-256':
-        case 'SHA-512-256-SESS':
+        case JsSIP_C.DIGEST_ALGORITHMS.SHA_512_256:
+        case JsSIP_C.DIGEST_ALGORITHMS.SHA_512_256_SESS:
           retVal = Utils.calculateSHA512_256(str);
           break;
         default:
@@ -1089,7 +1136,7 @@ module.exports = /*#__PURE__*/function () {
   }]);
   return DigestAuthentication;
 }();
-},{"./Logger":9,"./Utils":30}],6:[function(require,module,exports){
+},{"./Constants":2,"./Logger":9,"./Utils":30}],6:[function(require,module,exports){
 "use strict";
 
 function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
@@ -19116,6 +19163,22 @@ module.exports = /*#__PURE__*/function () {
           return;
         }
 
+        // Construct a RegExp with which we can check if we received a challenge that
+        // matches a supported digest algorithm
+        var regexPattern = '';
+        if (this._ua.configuration.supported_digest_algorithms && this._ua.configuration.supported_digest_algorithms.length) {
+          // Traverse through the configuration.supported_digest_algorithms array (which contains
+          // values from DIGEST_ALGORITHMS) and construct a regex pattern from the values.
+          this._ua.configuration.supported_digest_algorithms.forEach(function (algorithm, idx, array) {
+            regexPattern += "^".concat(algorithm, "$").concat(idx < array.length - 1 ? '|' : '');
+          });
+        } else {
+          // By default, all algorithms from DIGEST_ALGORITHMS are supported
+          regexPattern = "^".concat(JsSIP_C.DIGEST_ALGORITHMS.MD5, "$|^").concat(JsSIP_C.DIGEST_ALGORITHMS.MD5_SESS, "$|^").concat(JsSIP_C.DIGEST_ALGORITHMS.SHA_256, "$|^").concat(JsSIP_C.DIGEST_ALGORITHMS.SHA_256_SESS, "$|^").concat(JsSIP_C.DIGEST_ALGORITHMS.SHA_512_256, "$|^").concat(JsSIP_C.DIGEST_ALGORITHMS.SHA_512_256_SESS, "$");
+        }
+        logger.debug("RequestSender._receiveResponse - regexPattern = ".concat(regexPattern));
+        var digestAlgorithmsRegEx = new RegExp(regexPattern);
+
         // If there are multiple challenges in the response then we have to pick the
         // first one with a supported algorithm while skipping those with unsupported algorithms.
         for (var i = 0; i < nrChallenges; i++) {
@@ -19126,7 +19189,10 @@ module.exports = /*#__PURE__*/function () {
           if (!challengeCandidate) {
             continue;
           }
-          if (challengeCandidate.algorithm === undefined || /^MD5$|^MD5-SESS$|^SHA-256$|^SHA-256-SESS$|^SHA-512-256$|^SHA-512-256-SESS$/.test(challengeCandidate.algorithm)) {
+
+          // Test if the challenge contains a supported digest algorithm. If it doesn't define
+          // an algorithm at all then this means it defaults to MD5.
+          if (digestAlgorithmsRegEx.test(challengeCandidate.algorithm ? challengeCandidate.algorithm : JsSIP_C.DIGEST_ALGORITHMS.MD5)) {
             challenge = challengeCandidate;
             break;
           }
@@ -27522,7 +27588,7 @@ module.exports={
   "name": "@mitel-internal/jssip-mitel",
   "title": "JsSIP",
   "description": "the Javascript SIP library with patches for Mitel use",
-  "version": "3.10.1-rfc8760.11",
+  "version": "3.10.1-rfc8760.12",
   "homepage": "https://jssip.net",
   "contributors": [
     "José Luis Millán <jmillan@aliax.net> (https://github.com/jmillan)",
