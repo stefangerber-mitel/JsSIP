@@ -275,7 +275,7 @@ module.exports = {
     test.done();
   },
 
-  'parse authentication challenge' : function(test)
+  'parse authentication challenge MD5' : function(test)
   {
     const data = 'Digest realm =  "[1:ABCD::abc]", nonce =  "31d0a89ed7781ce6877de5cb032bf114", qop="AUTH,autH-INt", algorithm =  md5  ,  stale =  TRUE , opaque = "00000188"';
     const auth = JsSIP.Grammar.parse(data, 'challenge');
@@ -286,6 +286,38 @@ module.exports = {
     test.strictEqual(auth.algorithm, 'MD5');
     test.strictEqual(auth.stale, true);
     test.strictEqual(auth.opaque, '00000188');
+
+    test.done();
+  },
+
+  'parse authentication challenge SHA-256' : function(test)
+  {
+    const data = 'Digest realm =  "[1:ABCD::abc]", nonce =  "31d0a89ed7781ce6877de5cb032bf114", qop="AUTH,autH-INt", algorithm =  sha-256  ,  stale =  TRUE , opaque = "00000188"';
+    const auth = JsSIP.Grammar.parse(data, 'challenge');
+
+    test.strictEqual(auth.realm, '[1:ABCD::abc]');
+    test.strictEqual(auth.nonce, '31d0a89ed7781ce6877de5cb032bf114');
+    test.deepEqual(auth.qop, [ 'auth', 'auth-int' ]);
+    test.strictEqual(auth.algorithm, 'SHA-256');
+    test.strictEqual(auth.stale, true);
+    test.strictEqual(auth.opaque, '00000188');
+
+    test.done();
+  },
+
+  'parse authentication challenge SHA-512-256, userhash true and charset UTF-8' : function(test)
+  {
+    const data = 'Digest realm =  "[1:ABCD::abc]", nonce =  "31d0a89ed7781ce6877de5cb032bf114", qop="AUTH,autH-INt", algorithm =  sha-512-256  ,  stale =  TRUE , opaque = "00000188", userhash = TRUE, charset = utf-8';
+    const auth = JsSIP.Grammar.parse(data, 'challenge');
+
+    test.strictEqual(auth.realm, '[1:ABCD::abc]');
+    test.strictEqual(auth.nonce, '31d0a89ed7781ce6877de5cb032bf114');
+    test.deepEqual(auth.qop, [ 'auth', 'auth-int' ]);
+    test.strictEqual(auth.algorithm, 'SHA-512-256');
+    test.strictEqual(auth.stale, true);
+    test.strictEqual(auth.opaque, '00000188');
+    test.strictEqual(auth.userhash, true);
+    test.strictEqual(auth.charset, 'UTF-8');
 
     test.done();
   },
