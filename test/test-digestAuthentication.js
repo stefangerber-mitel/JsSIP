@@ -622,5 +622,136 @@ module.exports = {
     test.strictEqual(success, false);
 
     test.done();
+  },
+
+  'digest authenticate with preconfigured MD5 ha1 instead of password' : function(test)
+  {
+    const method = 'REGISTER';
+    const ruri = 'sip:testrealm@host.com';
+    const cnonce = '0a4f113b';
+    const credentials =
+      {
+        username : 'testuser',
+        password : null,
+        realm    : 'testrealm@host.com',
+        ha1      : '7b33ddc76839924578513358674924f8' // calculated manually using https://emn178.github.io/online-tools/md5.html
+      };
+    const challenge =
+      {
+        algorithm : 'MD5',
+        realm     : 'testrealm@host.com',
+        nonce     : '5a071f75353f667787615249c62dcc7b15a4828f',
+        opaque    : null,
+        stale     : null,
+        qop       : 'auth-int'
+      };
+
+    const digest = new DigestAuthentication(credentials);
+
+    const success = digest.authenticate({ method, ruri }, challenge, cnonce);
+
+    test.strictEqual(success, true);
+    // calculated manually using https://emn178.github.io/online-tools/md5.html
+    test.strictEqual(digest._response, '82b3cab8b1c4df404434db6a0581650c');
+
+    test.done();
+  },
+
+  'digest authenticate with preconfigured SHA-256 ha1 instead of password' : function(test)
+  {
+    const method = 'REGISTER';
+    const ruri = 'sip:testrealm@host.com';
+    const cnonce = '0a4f113b';
+    const credentials =
+      {
+        username : 'testuser',
+        password : null,
+        realm    : 'testrealm@host.com',
+        ha1      : 'cd32861acd6663d1cf8dcd38862a460d5f0dc815a4372bb14cb39c3e0063b3b6' // calculated manually using https://emn178.github.io/online-tools/sha256.html
+      };
+    const challenge =
+      {
+        algorithm : 'SHA-256',
+        realm     : 'testrealm@host.com',
+        nonce     : '5a071f75353f667787615249c62dcc7b15a4828f',
+        opaque    : null,
+        stale     : null,
+        qop       : 'auth-int'
+      };
+
+    const digest = new DigestAuthentication(credentials);
+
+    const success = digest.authenticate({ method, ruri }, challenge, cnonce);
+
+    test.strictEqual(success, true);
+    // calculated manually using https://emn178.github.io/online-tools/sha256.html
+    test.strictEqual(digest._response, '0ace4c65bebcb70bb1afd97713d1aab441369881d94812514d7f05f07f72b442');
+
+    test.done();
+  },
+
+  'digest authenticate failure with preconfigured MD5 ha1 instead of password, but missing realm' : function(test)
+  {
+    const method = 'REGISTER';
+    const ruri = 'sip:testrealm@host.com';
+    const cnonce = '0a4f113b';
+    const credentials =
+      {
+        username : 'testuser',
+        password : null,
+        realm    : null,
+        ha1      : '7b33ddc76839924578513358674924f8'
+      };
+    const challenge =
+      {
+        algorithm : 'MD5',
+        realm     : 'testrealm@host.com',
+        nonce     : '5a071f75353f667787615249c62dcc7b15a4828f',
+        opaque    : null,
+        stale     : null,
+        qop       : 'auth-int'
+      };
+
+    const digest = new DigestAuthentication(credentials);
+
+    const success = digest.authenticate({ method, ruri }, challenge, cnonce);
+
+    test.strictEqual(success, false);
+
+    test.done();
+  },
+
+  'digest authenticate with replacing MD5 ha1 from previous authentication with SHA-256 ha1 after server switches algorithms' : function(test)
+  {
+    const method = 'REGISTER';
+    const ruri = 'sip:testrealm@host.com';
+    const cnonce = '0a4f113b';
+    const credentials =
+      {
+        username        : 'testuser',
+        password        : 'testpassword',
+        realm           : 'testrealm@host.com',
+        ha1             : '7b33ddc76839924578513358674924f8', // the MD5 ha1 from previous authenticate() call
+        digestAlgorithm : 'MD5' // the saved algorithm descriptor from previous authenticate() call
+      };
+    const challenge =
+      {
+        algorithm : 'SHA-256', // server switched algorithm from MD5 to SHA-256
+        realm     : 'testrealm@host.com',
+        nonce     : '5a071f75353f667787615249c62dcc7b15a4828f',
+        opaque    : null,
+        stale     : null,
+        qop       : 'auth-int'
+      };
+
+    const digest = new DigestAuthentication(credentials);
+
+    const success = digest.authenticate({ method, ruri }, challenge, cnonce);
+
+    test.strictEqual(success, true);
+    test.strictEqual(digest._ha1, 'cd32861acd6663d1cf8dcd38862a460d5f0dc815a4372bb14cb39c3e0063b3b6');
+    test.strictEqual(digest._response, '0ace4c65bebcb70bb1afd97713d1aab441369881d94812514d7f05f07f72b442');
+
+    test.done();
   }
 };

@@ -1,5 +1,5 @@
 /*
- * JsSIP v3.10.1-beta.13
+ * JsSIP v3.10.1-beta.14
  * the Javascript SIP library with patches for Mitel use
  * Copyright: 2012-2025 
  * Homepage: https://jssip.net
@@ -932,6 +932,8 @@ module.exports = /*#__PURE__*/function () {
           return this._realm;
         case 'ha1':
           return this._ha1;
+        case 'algorithm':
+          return this._algorithm;
         default:
           logger.warn('get() | cannot get "%s" parameter', parameter);
           return undefined;
@@ -1029,8 +1031,12 @@ module.exports = /*#__PURE__*/function () {
 
       // Calculate the Digest "response" value.
 
-      // If we have plain SIP password then regenerate ha1.
-      if (this._credentials.password) {
+      // If we have a plain SIP password and either
+      // - no ha1 or
+      // - a ha1 that was NOT preconfigured by the user, but calculated with a different hash algorithm in
+      //   a previous authenticate() run (so this._credentials.digestAlgorithm is not null)
+      // then regenerate ha1 with the (newly) selected hash algorithm.
+      if (this._credentials.password && (!this._credentials.ha1 || this._credentials.digestAlgorithm && this._algorithm !== this._credentials.digestAlgorithm)) {
         if (this._algorithm.endsWith('-SESS')) {
           // HA1 = HASH(A1) = HASH(HASH(username:realm:password):nonce:cnonce).
           var hurp = this._calcHash("".concat(this._credentials.username, ":").concat(this._realm, ":").concat(this._credentials.password));
@@ -19210,7 +19216,8 @@ module.exports = /*#__PURE__*/function () {
               username: this._ua.configuration.authorization_user,
               password: this._ua.configuration.password,
               realm: this._ua.configuration.realm,
-              ha1: this._ua.configuration.ha1
+              ha1: this._ua.configuration.ha1,
+              digestAlgorithm: this._ua.lastUsedDigestAlgorithm
             });
           }
 
@@ -19224,6 +19231,8 @@ module.exports = /*#__PURE__*/function () {
           // Update ha1 and realm in the UA.
           this._ua.set('realm', this._auth.get('realm'));
           this._ua.set('ha1', this._auth.get('ha1'));
+          // Update used digest algorithm in the UA.
+          this._ua.lastUsedDigestAlgorithm = this._auth.get('algorithm');
           if (challenge.stale) {
             this._staled = true;
           }
@@ -21748,6 +21757,10 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
       ict: {}
     };
 
+    // The digest authentication algorithm that was last used when calculating the ha1.
+    // One of the members of JsSIP_C.DIGEST_ALGORITHMS.
+    _this._lastUsedDigestAlgorithm = null;
+
     // Custom UA empty object for high level use.
     _this._data = {};
     _this._closeTimer = null;
@@ -21794,6 +21807,14 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
     key: "transport",
     get: function get() {
       return this._transport;
+    }
+  }, {
+    key: "lastUsedDigestAlgorithm",
+    get: function get() {
+      return this._lastUsedDigestAlgorithm;
+    },
+    set: function set(value) {
+      this._lastUsedDigestAlgorithm = value;
     }
 
     // =================
@@ -22081,8 +22102,8 @@ module.exports = /*#__PURE__*/function (_EventEmitter) {
         case 'ha1':
           {
             this._configuration.ha1 = String(value);
-            // Delete the plain SIP password.
-            this._configuration.password = null;
+            // We used to delete this._configuration.password here, but we no longer do that because the password
+            // is required to compute the new ha1 if the digest algorithm changes in the server's challenge.
             break;
           }
         case 'authorization_jwt':
@@ -27588,7 +27609,7 @@ module.exports={
   "name": "@mitel-internal/jssip-mitel",
   "title": "JsSIP",
   "description": "the Javascript SIP library with patches for Mitel use",
-  "version": "3.10.1-beta.13",
+  "version": "3.10.1-beta.14",
   "homepage": "https://jssip.net",
   "contributors": [
     "José Luis Millán <jmillan@aliax.net> (https://github.com/jmillan)",
