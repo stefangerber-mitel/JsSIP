@@ -1513,7 +1513,13 @@ module.exports = class RTCSession extends EventEmitter {
 					break;
 				}
 				case JsSIP_C.UPDATE: {
-					if (this._status === C.STATUS_CONFIRMED) {
+					if (
+						this._status === C.STATUS_1XX_RECEIVED ||
+						this._status === C.STATUS_WAITING_FOR_ANSWER ||
+						this._status === C.STATUS_ANSWERED ||
+						this._status === C.STATUS_WAITING_FOR_ACK ||
+						this._status === C.STATUS_CONFIRMED
+					) {
 						this._receiveUpdate(request);
 					} else {
 						request.reply(403, 'Wrong Status');
