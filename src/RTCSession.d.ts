@@ -191,8 +191,8 @@ export interface MediaStreamTypes {
 }
 
 export interface LocalDescriptionEvent {
-  type: string;
-  sdp: string;
+	type: string;
+	sdp: string;
 }
 
 // listener
@@ -253,7 +253,7 @@ export interface RTCSessionEventMap {
 	'peerconnection:createanswerfailed': GenericErrorListener;
 	'peerconnection:setlocaldescriptionfailed': GenericErrorListener;
 	'peerconnection:setremotedescriptionfailed': GenericErrorListener;
-  localDescription: LocalDescriptionListener;
+	localDescription: LocalDescriptionListener;
 }
 
 declare enum SessionStatus {

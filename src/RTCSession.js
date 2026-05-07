@@ -1756,18 +1756,18 @@ module.exports = class RTCSession extends EventEmitter {
 	_createRTCConnection(pcConfig, rtcConstraints) {
 		this._connection = new RTCPeerConnection(pcConfig, rtcConstraints);
 
-		this._connection.addEventListener('iceconnectionstatechange', () => {
-			const state = this._connection.iceConnectionState;
-
-			// TODO: Do more with different states.
-			if (state === 'failed') {
-				this.terminate({
-					cause: JsSIP_C.causes.RTP_TIMEOUT,
-					status_code: 408,
-					reason_phrase: JsSIP_C.causes.RTP_TIMEOUT,
-				});
-			}
-		});
+		// this._connection.addEventListener('iceconnectionstatechange', () => {
+		// 	const state = this._connection.iceConnectionState;
+		//
+		// 	// TODO: Do more with different states.
+		// 	if (state === 'failed') {
+		// 		this.terminate({
+		// 			cause: JsSIP_C.causes.RTP_TIMEOUT,
+		// 			status_code: 408,
+		// 			reason_phrase: JsSIP_C.causes.RTP_TIMEOUT,
+		// 		});
+		// 	}
+		// });
 
 		logger.debug('emit "peerconnection"');
 
