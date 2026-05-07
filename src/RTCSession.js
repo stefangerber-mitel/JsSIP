@@ -132,6 +132,9 @@ module.exports = class RTCSession extends EventEmitter {
 
 		// Custom session empty object for high level use.
 		this._data = {};
+
+		// List of allowed NOTIFY events for the Allow-Events header.
+		this._allowEvents = [];
 	}
 
 	/**
@@ -186,6 +189,10 @@ module.exports = class RTCSession extends EventEmitter {
 
 	set data(_data) {
 		this._data = _data;
+	}
+
+	set allow_events(events) {
+		this._allowEvents = events;
 	}
 
 	get status() {
@@ -265,6 +272,7 @@ module.exports = class RTCSession extends EventEmitter {
 		this._rtcAnswerConstraints = options.rtcAnswerConstraints || null;
 
 		this._data = options.data || this._data;
+		this._allowEvents = options.allowEvents || this._allowEvents;
 
 		// Check target.
 		if (target === undefined) {
@@ -349,6 +357,11 @@ module.exports = class RTCSession extends EventEmitter {
 			extraHeaders.push(
 				`Session-Expires: ${this._sessionTimers.defaultExpires}${this._ua.configuration.session_timers_force_refresher ? ';refresher=uac' : ''}`
 			);
+		}
+
+		// If in-dialog NOTIFY events are allowed the Allow-Events header gets set.
+		if (this._allowEvents.length > 0) {
+			extraHeaders.push(`Allow-Events: ${this._allowEvents.join()}`);
 		}
 
 		this._request = new SIPMessage.InitialOutgoingInviteRequest(
@@ -465,8 +478,15 @@ module.exports = class RTCSession extends EventEmitter {
 			return;
 		}
 
+		const extraHeaders = [`Contact: ${this._contact}`];
+
+		// If in-dialog NOTIFY events are allowed the Allow-Events header gets set.
+		if (this._allowEvents.length > 0) {
+			extraHeaders.push(`Allow-Events: ${this._allowEvents.join()}`);
+		}
+
 		// Reply 180.
-		request.reply(180, null, [`Contact: ${this._contact}`]);
+		request.reply(180, null, extraHeaders);
 
 		// Fire 'progress' event.
 		// TODO: Document that 'response' field in 'progress' event is null for incoming calls.
@@ -498,6 +518,7 @@ module.exports = class RTCSession extends EventEmitter {
 		this._rtcOfferConstraints = options.rtcOfferConstraints || null;
 
 		this._data = options.data || this._data;
+		this._allowEvents = options.allowEvents || this._allowEvents;
 
 		// Check Session Direction and Status.
 		if (this._direction !== 'incoming') {
@@ -534,6 +555,11 @@ module.exports = class RTCSession extends EventEmitter {
 		clearTimeout(this._timers.userNoAnswerTimer);
 
 		extraHeaders.unshift(`Contact: ${this._contact}`);
+
+		// If in-dialog NOTIFY events are allowed the Allow-Events header gets set.
+		if (this._allowEvents.length > 0) {
+			extraHeaders.push(`Allow-Events: ${this._allowEvents.join()}`);
+		}
 
 		// Determine incoming media from incoming SDP offer (if any).
 		const sdp = request.parseSDP();
@@ -1503,7 +1529,13 @@ module.exports = class RTCSession extends EventEmitter {
 					break;
 				}
 				case JsSIP_C.NOTIFY: {
-					if (this._status === C.STATUS_CONFIRMED) {
+					if (
+						this._status === C.STATUS_1XX_RECEIVED ||
+						this._status === C.STATUS_WAITING_FOR_ANSWER ||
+						this._status === C.STATUS_ANSWERED ||
+						this._status === C.STATUS_WAITING_FOR_ACK ||
+						this._status === C.STATUS_CONFIRMED
+					) {
 						this._receiveNotify(request);
 					} else {
 						request.reply(403, 'Wrong Status');
@@ -2335,8 +2367,8 @@ module.exports = class RTCSession extends EventEmitter {
 			request.reply(400);
 		}
 
-		switch (request.event.event) {
-			case 'refer': {
+		if (request.event.event === 'refer') {
+			if (this._status === C.STATUS_CONFIRMED) {
 				let id;
 				let referSubscriber;
 
@@ -2360,13 +2392,19 @@ module.exports = class RTCSession extends EventEmitter {
 
 				referSubscriber.receiveNotify(request);
 				request.reply(200);
-
-				break;
+			} else {
+				request.reply(403, 'Wrong Status');
 			}
+		} else if (this._allowEvents.indexOf(request.event.event) !== -1) {
+			this.emit('newNotify', {
+				originator: 'remote',
+				type: request.event.event,
+				request: request,
+			});
 
-			default: {
-				request.reply(489);
-			}
+			request.reply(200);
+		} else {
+			request.reply(489);
 		}
 	}
 
