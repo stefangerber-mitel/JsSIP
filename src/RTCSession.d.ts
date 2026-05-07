@@ -190,6 +190,11 @@ export interface MediaStreamTypes {
 	video?: boolean;
 }
 
+export interface LocalDescriptionEvent {
+  type: string;
+  sdp: string;
+}
+
 // listener
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type GenericErrorListener = (error: any) => void;
@@ -219,6 +224,7 @@ export type UpdateListener = ReInviteListener;
 export type ReferListener = (event: ReferEvent) => void;
 export type SDPListener = (event: SDPEvent) => void;
 export type IceCandidateListener = (event: IceCandidateEvent) => void;
+export type LocalDescriptionListener = (event: LocalDescriptionEvent) => void;
 
 export interface RTCSessionEventMap {
 	peerconnection: PeerConnectionListener;
@@ -247,6 +253,7 @@ export interface RTCSessionEventMap {
 	'peerconnection:createanswerfailed': GenericErrorListener;
 	'peerconnection:setlocaldescriptionfailed': GenericErrorListener;
 	'peerconnection:setremotedescriptionfailed': GenericErrorListener;
+  localDescription: LocalDescriptionListener;
 }
 
 declare enum SessionStatus {

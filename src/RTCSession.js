@@ -1817,6 +1817,18 @@ module.exports = class RTCSession extends EventEmitter {
 				})
 				// Set local description.
 				.then(desc => {
+					const e = { type: type, sdp: desc.sdp };
+
+					logger.debug('emit "localDescription"');
+
+					// Give the event receiver the opportunity to mangle the SDP before it is handed
+					// over to WebRTC via RTCPeerConnection.setLocalDescription(). This is useful for
+					// modifications that WebRTC needs to be aware of, e.g. for disabling streams by
+					// setting the port to 0 in the m-line (RFC 3264, section 6).
+					this.emit('localDescription', e);
+
+					desc.sdp = e.sdp;
+
 					return connection.setLocalDescription(desc).catch(error => {
 						this._rtcReady = true;
 
