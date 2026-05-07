@@ -1427,6 +1427,30 @@ module.exports = class RTCSession extends EventEmitter {
 						logger.debug('emit "sdp"');
 						this.emit('sdp', e);
 
+            const sdp = sdp_transform.parse(e.sdp);
+            let hold = false;
+
+            for (const m of sdp.media)
+            {
+              if (holdMediaTypes.indexOf(m.type) === -1)
+              {
+                continue;
+              }
+
+              const direction = m.direction || sdp.direction || 'sendrecv';
+
+              if (direction === 'sendonly' || direction === 'inactive')
+              {
+                hold = true;
+              }
+              // If at least one of the streams is active don't emit 'hold'.
+              else
+              {
+                hold = false;
+                break;
+              }
+            }
+
 						const answer = new RTCSessionDescription({
 							type: 'answer',
 							sdp: e.sdp,
@@ -1450,7 +1474,20 @@ module.exports = class RTCSession extends EventEmitter {
 									error
 								);
 								this.emit('peerconnection:setremotedescriptionfailed', error);
-							});
+              })
+              .then(() =>
+              {
+                if (this._remoteHold === true && hold === false)
+                {
+                  this._remoteHold = false;
+                  this._onunhold('remote');
+                }
+                else if (this._remoteHold === false && hold === true)
+                {
+                  this._remoteHold = true;
+                  this._onhold('remote');
+                }
+              });
 					} else if (!this._is_confirmed) {
 						this._confirmed('remote', request);
 					}
