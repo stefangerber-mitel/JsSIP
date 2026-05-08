@@ -87,6 +87,10 @@ module.exports = class UA extends EventEmitter {
 			ict: {},
 		};
 
+		// The digest authentication algorithm that was last used when calculating the ha1.
+		// One of the members of JsSIP_C.DIGEST_ALGORITHMS.
+		this._lastUsedDigestAlgorithm = null;
+
 		// Custom UA empty object for high level use.
 		this._data = {};
 
@@ -123,6 +127,14 @@ module.exports = class UA extends EventEmitter {
 
 	get transport() {
 		return this._transport;
+	}
+
+	get lastUsedDigestAlgorithm() {
+		return this._lastUsedDigestAlgorithm;
+	}
+
+	set lastUsedDigestAlgorithm(value) {
+		this._lastUsedDigestAlgorithm = value;
 	}
 
 	// =================
@@ -414,8 +426,8 @@ module.exports = class UA extends EventEmitter {
 
 			case 'ha1': {
 				this._configuration.ha1 = String(value);
-				// Delete the plain SIP password.
-				this._configuration.password = null;
+				// We used to delete this._configuration.password here, but we no longer do that because the password
+				// is required to compute the new ha1 if the digest algorithm changes in the server's challenge.
 				break;
 			}
 

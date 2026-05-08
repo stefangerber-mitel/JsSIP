@@ -241,13 +241,19 @@ function parseHeader(message, data, headerStart, headerEnd) {
 			break;
 		}
 		case 'www-authenticate': {
-			message.setHeader('www-authenticate', headerValue);
-			parsed = message.parseHeader('www-authenticate');
+			message.addHeader('www-authenticate', headerValue);
+			parsed = message.parseHeader(
+				'www-authenticate',
+				message.getHeaders('www-authenticate').length - 1
+			);
 			break;
 		}
 		case 'proxy-authenticate': {
-			message.setHeader('proxy-authenticate', headerValue);
-			parsed = message.parseHeader('proxy-authenticate');
+			message.addHeader('proxy-authenticate', headerValue);
+			parsed = message.parseHeader(
+				'proxy-authenticate',
+				message.getHeaders('proxy-authenticate').length - 1
+			);
 			break;
 		}
 		case 'session-expires':

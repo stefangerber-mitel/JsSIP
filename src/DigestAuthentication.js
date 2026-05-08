@@ -1,5 +1,6 @@
 const Logger = require('./Logger');
 const Utils = require('./Utils');
+const JsSIP_C = require('./Constants');
 
 const logger = new Logger('DigestAuthentication');
 
@@ -19,6 +20,8 @@ module.exports = class DigestAuthentication {
 		this._uri = null;
 		this._ha1 = null;
 		this._response = null;
+		this._userhash = null;
+		this._charset = null;
 	}
 
 	get(parameter) {
@@ -29,6 +32,10 @@ module.exports = class DigestAuthentication {
 
 			case 'ha1': {
 				return this._ha1;
+			}
+
+			case 'algorithm': {
+				return this._algorithm;
 			}
 
 			default: {
@@ -54,17 +61,23 @@ module.exports = class DigestAuthentication {
 		this._nonce = challenge.nonce;
 		this._opaque = challenge.opaque;
 		this._stale = challenge.stale;
+		this._userhash = challenge.userhash;
+		this._charset = challenge.charset;
 
 		if (this._algorithm) {
-			if (this._algorithm !== 'MD5') {
+			const digestAlgorithmsRegEx = new RegExp(
+				`^${JsSIP_C.DIGEST_ALGORITHMS.MD5}$|^${JsSIP_C.DIGEST_ALGORITHMS.MD5_SESS}$|^${JsSIP_C.DIGEST_ALGORITHMS.SHA_256}$|^${JsSIP_C.DIGEST_ALGORITHMS.SHA_256_SESS}$|^${JsSIP_C.DIGEST_ALGORITHMS.SHA_512_256}$|^${JsSIP_C.DIGEST_ALGORITHMS.SHA_512_256_SESS}$`
+			);
+
+			if (!digestAlgorithmsRegEx.test(this._algorithm)) {
 				logger.warn(
-					'authenticate() | challenge with Digest algorithm different than "MD5", authentication aborted'
+					`authenticate() | challenge with unsupported Digest algorithm ${this._algorithm}, authentication aborted`
 				);
 
 				return false;
 			}
 		} else {
-			this._algorithm = 'MD5';
+			this._algorithm = JsSIP_C.DIGEST_ALGORITHMS.MD5;
 		}
 
 		if (!this._nonce) {
@@ -78,6 +91,16 @@ module.exports = class DigestAuthentication {
 		if (!this._realm) {
 			logger.warn(
 				'authenticate() | challenge without Digest realm, authentication aborted'
+			);
+
+			return false;
+		}
+
+		// If the challenge contains the optional charset parameter then it must
+		// be UTF-8 according to RFC 7616, section 3.3
+		if (this._charset && this._charset !== 'UTF-8') {
+			logger.warn(
+				`authenticate() | challenge with unsupported Digest charset ${this._charset}, authentication aborted`
 			);
 
 			return false;
@@ -142,15 +165,38 @@ module.exports = class DigestAuthentication {
 
 		// Calculate the Digest "response" value.
 
-		// If we have plain SIP password then regenerate ha1.
-		if (this._credentials.password) {
-			// HA1 = MD5(A1) = MD5(username:realm:password).
-			this._ha1 = Utils.calculateMD5(
-				`${this._credentials.username}:${this._realm}:${this._credentials.password}`
-			);
+		// If we have a plain SIP password and either
+		// - no ha1 or
+		// - a ha1 that was NOT preconfigured by the user, but calculated with a different hash algorithm in
+		//   a previous authenticate() run (so this._credentials.digestAlgorithm is not null)
+		// then regenerate ha1 with the (newly) selected hash algorithm.
+		if (
+			this._credentials.password &&
+			(!this._credentials.ha1 ||
+				(this._credentials.digestAlgorithm &&
+					this._algorithm !== this._credentials.digestAlgorithm))
+		) {
+			if (this._algorithm.endsWith('-SESS')) {
+				// HA1 = HASH(A1) = HASH(HASH(username:realm:password):nonce:cnonce).
+				const hurp = this._calcHash(
+					`${this._credentials.username}:${this._realm}:${this._credentials.password}`
+				);
+
+				this._ha1 = this._calcHash(`${hurp}:${this._nonce}:${this._cnonce}`);
+			} else {
+				// HA1 = HASH(A1) = HASH(username:realm:password).
+				this._ha1 = this._calcHash(
+					`${this._credentials.username}:${this._realm}:${this._credentials.password}`
+				);
+			}
 		}
 		// Otherwise reuse the stored ha1.
-		else {
+		else if (this._algorithm.endsWith('-SESS')) {
+			// HA1 = HASH(A1) = HASH(HASH(username:realm:password):nonce:cnonce).
+			this._ha1 = this._calcHash(
+				`${this._credentials.ha1}:${this._nonce}:${this._cnonce}`
+			);
+		} else {
 			this._ha1 = this._credentials.ha1;
 		}
 
@@ -158,36 +204,36 @@ module.exports = class DigestAuthentication {
 		let ha2;
 
 		if (this._qop === 'auth') {
-			// HA2 = MD5(A2) = MD5(method:digestURI).
+			// HA2 = HASH(A2) = HASH(method:digestURI).
 			a2 = `${this._method}:${this._uri}`;
-			ha2 = Utils.calculateMD5(a2);
+			ha2 = this._calcHash(a2);
 
 			logger.debug('authenticate() | using qop=auth [a2:"%s"]', a2);
 
-			// Response = MD5(HA1:nonce:nonceCount:credentialsNonce:qop:HA2).
-			this._response = Utils.calculateMD5(
+			// Response = HASH(HA1:nonce:nonceCount:credentialsNonce:qop:HA2).
+			this._response = this._calcHash(
 				`${this._ha1}:${this._nonce}:${this._ncHex}:${this._cnonce}:auth:${ha2}`
 			);
 		} else if (this._qop === 'auth-int') {
-			// HA2 = MD5(A2) = MD5(method:digestURI:MD5(entityBody)).
-			a2 = `${this._method}:${this._uri}:${Utils.calculateMD5(body ? body : '')}`;
-			ha2 = Utils.calculateMD5(a2);
+			// HA2 = HASH(A2) = HASH(method:digestURI:HASH(entityBody)).
+			a2 = `${this._method}:${this._uri}:${this._calcHash(body ? body : '')}`;
+			ha2 = this._calcHash(a2);
 
 			logger.debug('authenticate() | using qop=auth-int [a2:"%s"]', a2);
 
-			// Response = MD5(HA1:nonce:nonceCount:credentialsNonce:qop:HA2).
-			this._response = Utils.calculateMD5(
+			// Response = HASH(HA1:nonce:nonceCount:credentialsNonce:qop:HA2).
+			this._response = this._calcHash(
 				`${this._ha1}:${this._nonce}:${this._ncHex}:${this._cnonce}:auth-int:${ha2}`
 			);
 		} else if (this._qop === null) {
-			// HA2 = MD5(A2) = MD5(method:digestURI).
+			// HA2 = HASH(A2) = HASH(method:digestURI).
 			a2 = `${this._method}:${this._uri}`;
-			ha2 = Utils.calculateMD5(a2);
+			ha2 = this._calcHash(a2);
 
 			logger.debug('authenticate() | using qop=null [a2:"%s"]', a2);
 
-			// Response = MD5(HA1:nonce:HA2).
-			this._response = Utils.calculateMD5(`${this._ha1}:${this._nonce}:${ha2}`);
+			// Response = HASH(HA1:nonce:HA2).
+			this._response = this._calcHash(`${this._ha1}:${this._nonce}:${ha2}`);
 		}
 
 		logger.debug('authenticate() | response generated');
@@ -208,7 +254,18 @@ module.exports = class DigestAuthentication {
 		}
 
 		auth_params.push(`algorithm=${this._algorithm}`);
-		auth_params.push(`username="${this._credentials.username}"`);
+
+		if (this._userhash !== undefined) {
+			const username = this._userhash
+				? this._calcHash(`${this._credentials.username}:${this._realm}`)
+				: this._credentials.username;
+
+			auth_params.push(`username="${username}"`);
+			auth_params.push(`userhash=${this._userhash}`);
+		} else {
+			auth_params.push(`username="${this._credentials.username}"`);
+		}
+
 		auth_params.push(`realm="${this._realm}"`);
 		auth_params.push(`nonce="${this._nonce}"`);
 		auth_params.push(`uri="${this._uri}"`);
@@ -223,5 +280,36 @@ module.exports = class DigestAuthentication {
 		}
 
 		return `Digest ${auth_params.join(', ')}`;
+	}
+
+	_calcHash(str) {
+		let retVal;
+
+		switch (this._algorithm) {
+			case JsSIP_C.DIGEST_ALGORITHMS.MD5:
+			case JsSIP_C.DIGEST_ALGORITHMS.MD5_SESS: {
+				retVal = Utils.calculateMD5(str);
+				break;
+			}
+
+			case JsSIP_C.DIGEST_ALGORITHMS.SHA_256:
+			case JsSIP_C.DIGEST_ALGORITHMS.SHA_256_SESS: {
+				retVal = Utils.calculateSHA256(str);
+				break;
+			}
+
+			case JsSIP_C.DIGEST_ALGORITHMS.SHA_512_256:
+			case JsSIP_C.DIGEST_ALGORITHMS.SHA_512_256_SESS: {
+				retVal = Utils.calculateSHA512_256(str);
+				break;
+			}
+
+			default: {
+				retVal = Utils.calculateMD5(str);
+				break;
+			}
+		}
+
+		return retVal;
 	}
 };

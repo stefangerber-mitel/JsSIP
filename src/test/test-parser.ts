@@ -282,7 +282,7 @@ describe('parser', () => {
 		expect(cseq.method).toBe('CHICKEN');
 	});
 
-	test('parse authentication challenge', () => {
+	test('parse authentication challenge MD5', () => {
 		const data =
 			'Digest realm =  "[1:ABCD::abc]", nonce =  "31d0a89ed7781ce6877de5cb032bf114", qop="AUTH,autH-INt", algorithm =  md5  ,  stale =  TRUE , opaque = "00000188"';
 		const auth = Grammar.parse(data, 'challenge');
@@ -293,6 +293,34 @@ describe('parser', () => {
 		expect(auth.algorithm).toBe('MD5');
 		expect(auth.stale).toBe(true);
 		expect(auth.opaque).toBe('00000188');
+	});
+
+	test('parse authentication challenge SHA-256', () => {
+		const data =
+			'Digest realm =  "[1:ABCD::abc]", nonce =  "31d0a89ed7781ce6877de5cb032bf114", qop="AUTH,autH-INt", algorithm =  sha-256  ,  stale =  TRUE , opaque = "00000188"';
+		const auth = JsSIP.Grammar.parse(data, 'challenge');
+
+		expect(auth.realm).toBe('[1:ABCD::abc]');
+		expect(auth.nonce).toBe('31d0a89ed7781ce6877de5cb032bf114');
+		expect(auth.qop).toEqual(['auth', 'auth-int']);
+		expect(auth.algorithm).toBe('SHA-256');
+		expect(auth.stale).toBe(true);
+		expect(auth.opaque).toBe('00000188');
+	});
+
+	test('parse authentication challenge SHA-512-256, userhash true and charset UTF-8', () => {
+		const data =
+			'Digest realm =  "[1:ABCD::abc]", nonce =  "31d0a89ed7781ce6877de5cb032bf114", qop="AUTH,autH-INt", algorithm =  sha-512-256  ,  stale =  TRUE , opaque = "00000188", userhash = TRUE, charset = utf-8';
+		const auth = JsSIP.Grammar.parse(data, 'challenge');
+
+		expect(auth.realm).toBe('[1:ABCD::abc]');
+		expect(auth.nonce).toBe('31d0a89ed7781ce6877de5cb032bf114');
+		expect(auth.qop).toEqual(['auth', 'auth-int']);
+		expect(auth.algorithm).toBe('SHA-512-256');
+		expect(auth.stale).toBe(true);
+		expect(auth.opaque).toBe('00000188');
+		expect(auth.userhash).toBe(true);
+		expect(auth.charset).toBe('UTF-8');
 	});
 
 	test('parse Event', () => {

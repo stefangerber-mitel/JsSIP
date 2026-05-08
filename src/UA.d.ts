@@ -18,7 +18,7 @@ import { Registrator } from './Registrator';
 import { Notifier } from './Notifier';
 import { Subscriber } from './Subscriber';
 import { URI } from './URI';
-import { causes } from './Constants';
+import { causes, DIGEST_ALGORITHMS } from './Constants';
 
 export interface UnRegisterOptions {
 	all?: boolean;
@@ -57,6 +57,7 @@ export interface UAConfiguration {
 	use_preloaded_route?: boolean;
 	user_agent?: string;
 	extra_headers?: string[];
+	supported_digest_algorithms?: DIGEST_ALGORITHMS[];
 }
 
 export interface IncomingRTCSessionEvent {

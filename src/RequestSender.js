@@ -114,13 +114,77 @@ module.exports = class RequestSender {
 			(this._ua.configuration.password !== null ||
 				this._ua.configuration.ha1 !== null)
 		) {
-			// Get and parse the appropriate WWW-Authenticate or Proxy-Authenticate header.
+			let authenticateType;
+
 			if (response.status_code === 401) {
-				challenge = response.parseHeader('www-authenticate');
+				authenticateType = 'www-authenticate';
 				authorization_header_name = 'authorization';
 			} else {
-				challenge = response.parseHeader('proxy-authenticate');
+				authenticateType = 'proxy-authenticate';
 				authorization_header_name = 'proxy-authorization';
+			}
+
+			const nrChallenges = response.getHeaders(authenticateType).length;
+
+			// Verify it seems a valid challenge.
+			if (nrChallenges === 0) {
+				logger.debug(
+					`${response.status_code} with wrong or missing challenge, cannot authenticate`
+				);
+				this._eventHandlers.onReceiveResponse(response);
+
+				return;
+			}
+
+			// Construct a RegExp with which we can check if we received a challenge that
+			// matches a supported digest algorithm
+			let regexPattern = '';
+
+			if (
+				this._ua.configuration.supported_digest_algorithms &&
+				this._ua.configuration.supported_digest_algorithms.length
+			) {
+				// Traverse through the configuration.supported_digest_algorithms array (which contains
+				// values from DIGEST_ALGORITHMS) and construct a regex pattern from the values.
+				this._ua.configuration.supported_digest_algorithms.forEach(
+					(algorithm, idx, array) => {
+						regexPattern += `^${algorithm}$${idx < array.length - 1 ? '|' : ''}`;
+					}
+				);
+			} else {
+				// By default, all algorithms from DIGEST_ALGORITHMS are supported
+				regexPattern = `^${JsSIP_C.DIGEST_ALGORITHMS.MD5}$|^${JsSIP_C.DIGEST_ALGORITHMS.MD5_SESS}$|^${JsSIP_C.DIGEST_ALGORITHMS.SHA_256}$|^${JsSIP_C.DIGEST_ALGORITHMS.SHA_256_SESS}$|^${JsSIP_C.DIGEST_ALGORITHMS.SHA_512_256}$|^${JsSIP_C.DIGEST_ALGORITHMS.SHA_512_256_SESS}$`;
+			}
+
+			logger.debug(
+				`RequestSender._receiveResponse - regexPattern = ${regexPattern}`
+			);
+
+			const digestAlgorithmsRegEx = new RegExp(regexPattern);
+
+			// If there are multiple challenges in the response then we have to pick the
+			// first one with a supported algorithm while skipping those with unsupported algorithms.
+			for (let i = 0; i < nrChallenges; i++) {
+				const challengeCandidate = response.parseHeader(authenticateType, i);
+
+				// According to RFC 8760, section 2.4, "The client MUST ignore any challenge it
+				// does not understand." A parsing error might be interpreted that way.
+				if (!challengeCandidate) {
+					continue;
+				}
+
+				// Test if the challenge contains a supported digest algorithm. If it doesn't define
+				// an algorithm at all then this means it defaults to MD5.
+				if (
+					digestAlgorithmsRegEx.test(
+						challengeCandidate.algorithm
+							? challengeCandidate.algorithm
+							: JsSIP_C.DIGEST_ALGORITHMS.MD5
+					)
+				) {
+					challenge = challengeCandidate;
+					break;
+				}
 			}
 
 			// Verify it seems a valid challenge.
@@ -140,6 +204,7 @@ module.exports = class RequestSender {
 						password: this._ua.configuration.password,
 						realm: this._ua.configuration.realm,
 						ha1: this._ua.configuration.ha1,
+						digestAlgorithm: this._ua.lastUsedDigestAlgorithm,
 					});
 				}
 
@@ -154,6 +219,8 @@ module.exports = class RequestSender {
 				// Update ha1 and realm in the UA.
 				this._ua.set('realm', this._auth.get('realm'));
 				this._ua.set('ha1', this._auth.get('ha1'));
+				// Update used digest algorithm in the UA.
+				this._ua.lastUsedDigestAlgorithm = this._auth.get('algorithm');
 
 				if (challenge.stale) {
 					this._staled = true;
