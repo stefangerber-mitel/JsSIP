@@ -21,10 +21,10 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/versatica/JsSIP.git"
+		"url": "git+https://github.com/stefangerber-mitel/JsSIP.git"
 	},
 	"bugs": {
-		"url": "https://github.com/versatica/JsSIP/issues"
+		"url": "https://github.com/stefangerber-mitel/JsSIP/issues"
 	},
 	"files": [
 		"LICENSE",
